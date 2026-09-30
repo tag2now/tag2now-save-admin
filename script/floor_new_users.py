@@ -220,7 +220,12 @@ def main():
         sys.exit(f"error: {STATE} missing; run with --init first")
     if a.status:
         return cmd_status(st)
-    run_once(st, a.dry_run)
+    import tdt_admin as ta
+    try:
+        run_once(st, a.dry_run)
+    except ta.TdtError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

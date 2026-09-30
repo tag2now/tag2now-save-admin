@@ -25,6 +25,10 @@ verifies the result by md5. Nothing here touches the database.
 <npid> is the RPCN username, matched case-insensitively. A name that matches
 no account or more than one stops the command before anything is written.
 
+The commands are thin: the functions they call raise TdtError instead of
+exiting and return what they did instead of printing it, so other programs can
+import this module and call them.
+
 Writes refuse to run while the target account is online unless --force is
 given, because the game issues a new data_id on its next save and would
 silently discard the edit.
@@ -38,6 +42,7 @@ import shutil
 import sqlite3
 import hashlib
 import argparse
+import contextlib
 import subprocess
 import unicodedata
 import datetime as dt
@@ -136,9 +141,12 @@ def reseal(buf):
 
 
 # ------------------------------------------------------------------ util
+class TdtError(Exception):
+    """the command cannot go on; main() prints it and exits 1"""
+
+
 def die(msg):
-    print(f"error: {msg}", file=sys.stderr)
-    sys.exit(1)
+    raise TdtError(msg)
 
 
 def md5(path):
@@ -174,7 +182,7 @@ def _match_error(name, found):
 
 
 def resolve(name):
-    """username(npid, case-insensitive) -> the stored username; exactly one match or exit"""
+    """username(npid, case-insensitive) -> the stored username; exactly one match or TdtError"""
     con = db()
     found = _match(con, name)
     con.close()
@@ -184,7 +192,7 @@ def resolve(name):
 
 
 def resolve_all(names):
-    """resolve every name before anything is written; exit if any is missing or ambiguous"""
+    """resolve every name before anything is written; TdtError if any is missing or ambiguous"""
     con = db()
     out, errors = [], []
     for name in names:
@@ -272,10 +280,11 @@ def write_save(path, buf):
     os.unlink(tmp)
 
 
-def audit(action, npid, **kw):
+def audit(action, npid, actor=None, **kw):
+    """actor is who asked for it; the shell user when nobody else is named"""
     os.makedirs(os.path.dirname(AUDIT_LOG), exist_ok=True)
     rec = {"ts": dt.datetime.now().isoformat(timespec="seconds"),
-           "user": os.environ.get("SUDO_USER") or os.environ.get("USER", "?"),
+           "user": actor or os.environ.get("SUDO_USER") or os.environ.get("USER", "?"),
            "action": action, "npid": npid}
     rec.update(kw)
     with open(AUDIT_LOG, "a", encoding="utf-8") as f:
@@ -301,6 +310,39 @@ def take_backup(npid, path, label=None):
     dst = backup_path(npid, label)
     shutil.copyfile(path, dst)
     return dst
+
+
+def find_backup(npid, label=None):
+    """the backup saved under label, or the latest one by name when no label is given"""
+    name = f"{label}.tdt" if label else "*.tdt"
+    found = sorted(glob.glob(os.path.join(BACKUP_DIR, _safe(npid), name)))
+    if not found:
+        die(f"no backup matching {npid}/{name}")
+    return found[-1]
+
+
+def lock_path(npid):
+    # outside the account's backup directory, which holds nothing but backups
+    d = os.path.join(BACKUP_DIR, ".locks")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, f"{_safe(npid)}.lock")
+
+
+@contextlib.contextmanager
+def save_lock(npid):
+    """one writer per account at a time, across processes; waits for the other one"""
+    import fcntl   # Linux only, like every write here; reading saves works anywhere
+    with open(lock_path(npid), "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield
+
+
+def ensure_unchanged(path, expect_sha256):
+    """stop if the save is no longer the one the caller looked at"""
+    with open(path, "rb") as f:
+        now = hashlib.sha256(f.read()).hexdigest()
+    if now != expect_sha256:
+        die("the save changed since it was read; nothing was written. Look at it again and retry.")
 
 
 def online_or_stop(force):
@@ -464,31 +506,36 @@ def decode(b, all_chars=False):
     }
 
 
+def describe_file(path, all_chars=False):
+    """a save file decoded, with its sha256 and whether its checksum holds"""
+    b = read_save(path)
+    d = decode(b, all_chars)
+    return {"file": path, "sha256": hashlib.sha256(b).hexdigest(),
+            "checksum_ok": checksum(b) == d["checksum"], **d}
+
+
+def show_save(npid, all_chars=False):
+    """npid's live save: where it is, when the game wrote it, and describe_file() of it"""
+    uid, data_id, saved, path = lookup(npid)
+    return {"npid": npid, "user_id": uid, "data_id": data_id, "saved_utc": str(saved),
+            **describe_file(path, all_chars)}
+
+
 def cmd_show(a):
     if bool(a.npid) == bool(a.file):
         die("give an npid or --input-file, not both")
-    if a.file:
-        path = a.file
-        head = {}
-    else:
-        uid, data_id, saved, path = lookup(a.npid)
-        head = {"npid": a.npid, "user_id": uid, "data_id": data_id, "saved_utc": str(saved)}
-    b = read_save(path)
-    d = decode(b, a.all_chars)
-    ok = checksum(b) == d["checksum"]
-    sha = hashlib.sha256(b).hexdigest()
+    d = describe_file(a.file, a.all_chars) if a.file else show_save(a.npid, a.all_chars)
 
     if a.json:
-        print(json.dumps({**head, "file": path, "sha256": sha, "checksum_ok": ok, **d},
-                         ensure_ascii=False, indent=2))
+        print(json.dumps(d, ensure_ascii=False, indent=2))
         return
 
-    if head:
-        print(f"{a.npid}  user_id={head['user_id']}  data_id={head['data_id']}  "
-              f"saved={head['saved_utc']} UTC")
-    print(f"  file      {path}")
-    print(f"  sha256    {sha}")
-    print(f"  checksum  0x{d['checksum']:08X}  {'OK' if ok else 'MISMATCH'}")
+    if a.npid:
+        print(f"{a.npid}  user_id={d['user_id']}  data_id={d['data_id']}  "
+              f"saved={d['saved_utc']} UTC")
+    print(f"  file      {d['file']}")
+    print(f"  sha256    {d['sha256']}")
+    print(f"  checksum  0x{d['checksum']:08X}  {'OK' if d['checksum_ok'] else 'MISMATCH'}")
     an, at = rank_name(d["account_rank"])
     print(f"  account   rank={d['account_rank']} {an} ({at})  progress={d['progress']}/11")
     wr = d["wins"] / (d["wins"] + d["losses"]) if d["wins"] + d["losses"] else 0
@@ -522,50 +569,77 @@ def cmd_backup(a):
             audit("backup", npid, data_id=data_id, backup=dst, md5=md5(dst))
             print(f"  {npid:20s} data_id={data_id:<8d} -> {os.path.basename(dst)}")
             n += 1
-        except SystemExit:
+        except TdtError as e:
+            print(f"error: {e}", file=sys.stderr)
             print(f"  {npid:20s} skipped (no save)")
     print(f"{n} backed up into {BACKUP_DIR}")
 
 
+def list_backups(npid=None):
+    """[{npid, label, total, account_rank}] by account then label; a backup of the wrong
+    size has total and account_rank None"""
+    pat = os.path.join(_safe(npid), "*.tdt") if npid else os.path.join("*", "*.tdt")
+    out = []
+    for f in sorted(glob.glob(os.path.join(BACKUP_DIR, pat))):
+        with open(f, "rb") as fh:
+            b = fh.read()
+        d = decode(b) if len(b) == REC else {"total": None, "account_rank": None}
+        out.append({"npid": os.path.basename(os.path.dirname(f)), "label": os.path.basename(f)[:-4],
+                    "total": d["total"], "account_rank": d["account_rank"]})
+    return out
+
+
 def cmd_list_backups(a):
-    pat = os.path.join(_safe(a.npid), "*.tdt") if a.npid else os.path.join("*", "*.tdt")
-    files = sorted(glob.glob(os.path.join(BACKUP_DIR, pat)))
-    if not files:
+    found = list_backups(a.npid)
+    if not found:
         print("no backups")
         return
-    for f in files:
-        npid = os.path.basename(os.path.dirname(f))
-        label = os.path.basename(f)[:-4]
-        b = bytearray(open(f, "rb").read())
-        d = decode(b) if len(b) == REC else None
-        extra = f"{d['total']} matches, rank {d['account_rank']}" if d else "BAD SIZE"
-        print(f"  {npid:20s} {label:20s} {extra}")
+    for e in found:
+        extra = "BAD SIZE" if e["total"] is None else f"{e['total']} matches, rank {e['account_rank']}"
+        print(f"  {e['npid']:20s} {e['label']:20s} {extra}")
+
+
+def apply_save(npid, buf, action, force=False, label=None, who=None, actor=None,
+               expect_sha256=None, **meta):
+    """write buf as npid's live save: backup, reseal, write, verify, audit.
+
+    expect_sha256, when given, is the sha256 the caller saw; a save that has changed since
+    is left alone. Returns {data_id, data_id_now, backup, checksum, md5_before, md5_after,
+    landed}; landed is False when the game saved in the meantime (data_id_now differs) and
+    the edit is orphaned."""
+    uid, data_id, saved, path = lookup(npid)
+    guard_online(npid, force, who)
+    with save_lock(npid):
+        if expect_sha256 is not None:
+            ensure_unchanged(path, expect_sha256)
+        before = md5(path)
+        bak = take_backup(npid, path, label)
+        new_ck = reseal(buf)
+        write_save(path, buf)
+        after = md5(path)
+        with open(path, "rb") as f:
+            verified = f.read() == bytes(buf)
+        # the game may have saved while we worked; the DB would then point elsewhere
+        _, data_id2, _, _ = lookup(npid)
+        audit(action, npid, actor=actor, data_id=data_id, backup=bak, md5_before=before,
+              md5_after=after, checksum=f"0x{new_ck:08X}", verified=verified, **meta)
+    if not verified:
+        die(f"verify failed: {path} does not match what was written")
+    return {"data_id": data_id, "data_id_now": data_id2, "backup": bak, "checksum": new_ck,
+            "md5_before": before, "md5_after": after, "landed": data_id2 == data_id}
 
 
 def _apply(npid, buf, action, force, label=None, who=None, **meta):
-    """write buf as npid's live save; True if it landed, False if the game saved over it"""
-    uid, data_id, saved, path = lookup(npid)
-    guard_online(npid, force, who)
-    before = md5(path)
-    bak = take_backup(npid, path, label)
-    new_ck = reseal(buf)
-    write_save(path, buf)
-    after = md5(path)
-    verified = open(path, "rb").read() == bytes(buf)
-    # the game may have saved while we worked; the DB would then point elsewhere
-    _, data_id2, _, _ = lookup(npid)
-    audit(action, npid, data_id=data_id, backup=bak, md5_before=before,
-          md5_after=after, checksum=f"0x{new_ck:08X}", verified=verified, **meta)
-    print(f"  backup   {os.path.basename(bak)}")
-    print(f"  checksum 0x{new_ck:08X}")
-    print(f"  md5      {before[:12]} -> {after[:12]}")
-    if not verified:
-        die(f"verify failed: {path} does not match what was written")
-    if data_id2 != data_id:
-        print(f"  WARNING: data_id changed {data_id} -> {data_id2} while writing. "
+    """apply_save for the commands: prints what was written; True if it landed"""
+    r = apply_save(npid, buf, action, force, label=label, who=who, **meta)
+    print(f"  backup   {os.path.basename(r['backup'])}")
+    print(f"  checksum 0x{r['checksum']:08X}")
+    print(f"  md5      {r['md5_before'][:12]} -> {r['md5_after'][:12]}")
+    if not r["landed"]:
+        print(f"  WARNING: data_id changed {r['data_id']} -> {r['data_id_now']} while writing. "
               f"The game saved in the meantime and this edit is now orphaned.")
         return False
-    print(f"  applied to data_id {data_id}")
+    print(f"  applied to data_id {r['data_id']}")
     return True
 
 
@@ -596,19 +670,35 @@ def set_all_buf(b, rank):
     return n
 
 
+def check_rank_edit(char, rank, points=None):
+    """TdtError unless (char, rank, points) is something set_rank_buf can write"""
+    if char != ALL_CHARS and not 0 <= char < CHAR_N:
+        die(f"--char must be 0..{CHAR_N - 1} or all")
+    if not 0 <= rank <= 255:
+        die("--rank must be 0..255")
+    if points is not None and not 0 <= points <= 0xFFFF:
+        die("--points must be 0..65535")
+    if char == ALL_CHARS and (rank not in FLOOR_POINTS or points is not None):
+        die(f"--char all takes --rank {min(FLOOR_POINTS)}..{max(FLOOR_POINTS)} and no --points")
+
+
+def set_rank_buf(b, char, rank, points=None):
+    """one character's rank (and points when given) -> (old rank, old points);
+    arguments as accepted by check_rank_edit, char not ALL_CHARS (that is set_all_buf)"""
+    o = CHAR_BASE + char * CHAR_STRIDE
+    old = b[o], be16(b, o + SLOT_POINTS)
+    b[o] = rank
+    if points is not None:
+        b[o + SLOT_POINTS:o + SLOT_POINTS + 2] = points.to_bytes(2, "big")
+    return old
+
+
 def cmd_set_rank(a):
     if not a.npid and not a.file:
         die("give an npid or --input-file")
     if a.out and (not a.file or a.npid):
         die("--output-file needs --input-file and no npid")
-    if a.char != ALL_CHARS and not 0 <= a.char < CHAR_N:
-        die(f"--char must be 0..{CHAR_N - 1} or all")
-    if not 0 <= a.rank <= 255:
-        die("--rank must be 0..255")
-    if a.points is not None and not 0 <= a.points <= 0xFFFF:
-        die("--points must be 0..65535")
-    if a.char == ALL_CHARS and (a.rank not in FLOOR_POINTS or a.points is not None):
-        die(f"--char all takes --rank {min(FLOOR_POINTS)}..{max(FLOOR_POINTS)} and no --points")
+    check_rank_edit(a.char, a.rank, a.points)
     b = read_save(a.file if a.file else lookup(a.npid)[3])
     if a.char == ALL_CHARS:
         old_acc = b[OFF_ACCOUNT_RANK]
@@ -617,11 +707,7 @@ def cmd_set_rank(a):
               f"{FLOOR_POINTS[a.rank]}pt, streak 0 ({n} changed); "
               f"account rank {old_acc} -> {a.rank}")
     else:
-        o = CHAR_BASE + a.char * CHAR_STRIDE
-        old_rank, old_pts = b[o], be16(b, o + SLOT_POINTS)
-        b[o] = a.rank
-        if a.points is not None:
-            b[o + SLOT_POINTS:o + SLOT_POINTS + 2] = a.points.to_bytes(2, "big")
+        old_rank, old_pts = set_rank_buf(b, a.char, a.rank, a.points)
         print(f"{a.npid or a.file}  character {a.char} ({CHARACTERS[a.char]}): "
               f"rank {old_rank} {rank_name(old_rank)[0]} -> {a.rank} {rank_name(a.rank)[0]}"
               + (f", points {old_pts} -> {a.points}" if a.points is not None else ""))
@@ -723,7 +809,8 @@ def floor_account(npid, rank=None, who=None, label=None, dry_run=False, force=Fa
     try:
         _, _, _, path = lookup(npid)
         b = read_save(path)
-    except SystemExit:
+    except TdtError as e:
+        print(f"error: {e}", file=sys.stderr)
         return "failed", None
     m, y, n = floor_buf(b, rank)
     f = fix_floor_points(b, y) if fix_points else 0
@@ -744,7 +831,8 @@ def floor_account(npid, rank=None, who=None, label=None, dry_run=False, force=Fa
     try:
         landed = _apply(npid, b, "floor", force, label=label, who=who, floor=y, raised=n,
                         **({"points_fixed": f} if fix_points else {}))
-    except SystemExit:
+    except TdtError as e:
+        print(f"error: {e}", file=sys.stderr)
         return "failed", move
     return ("applied" if landed else "orphaned"), move
 
@@ -844,7 +932,8 @@ def cmd_floor_redo(a):
             _, _, _, path = lookup(npid)
             cur = read_save(path)
             pre = read_save(r["backup"])
-        except SystemExit:
+        except TdtError as e:
+            print(f"error: {e}", file=sys.stderr)
             count["failed"] += 1
             continue
         y_old = r["floor"]
@@ -877,7 +966,8 @@ def cmd_floor_redo(a):
         try:
             landed = _apply(npid, cur, "floor-redo", a.force, label=label, who=who, redo=a.redo,
                             floor_old=y_old, floor=y_new, changed=len(changes), kept=len(played))
-        except SystemExit:
+        except TdtError as e:
+            print(f"error: {e}", file=sys.stderr)
             count["failed"] += 1
             continue
         count["applied" if landed else "orphaned"] += 1
@@ -955,14 +1045,7 @@ def cmd_floor(a):
 
 
 def cmd_restore(a):
-    if a.file:
-        src = a.file
-    else:
-        name = f"{a.label}.tdt" if a.label else "*.tdt"
-        found = sorted(glob.glob(os.path.join(BACKUP_DIR, _safe(a.npid), name)))
-        if not found:
-            die(f"no backup matching {a.npid}/{name}")
-        src = found[-1]
+    src = a.file or find_backup(a.npid, a.label)
     b = bytearray(open(src, "rb").read())
     if len(b) != REC:
         die(f"{src}: expected {REC} bytes, got {len(b)}")
@@ -973,13 +1056,20 @@ def cmd_restore(a):
     _apply(a.npid, b, "restore", a.force, source=src)
 
 
-def cmd_log(a):
+def read_log(n):
+    """the last n audit records, oldest first; none when nothing was ever written"""
     if not os.path.exists(AUDIT_LOG):
+        return []
+    with open(AUDIT_LOG, encoding="utf-8") as f:
+        return [json.loads(line) for line in f.read().splitlines()[-n:]]
+
+
+def cmd_log(a):
+    recs = read_log(a.n)
+    if not recs:
         print("no audit log yet")
         return
-    lines = open(AUDIT_LOG, encoding="utf-8").read().splitlines()
-    for line in lines[-a.n:]:
-        r = json.loads(line)
+    for r in recs:
         extra = " ".join(f"{k}={v}" for k, v in r.items()
                          if k not in ("ts", "user", "action", "npid", "backup"))
         print(f"  {r['ts']}  {r['user']:10s} {r['action']:18s} {r['npid']:18s} {extra}")
@@ -1137,6 +1227,14 @@ def main():
     except AttributeError:
         pass
 
+    try:
+        run(a)
+    except TdtError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def run(a):
     # 계정 이름은 대소문자 무시로 DB에서 확정한다. list-backups는 삭제된 계정의 백업도 봐야 하므로 제외
     if a.cmd != "list-backups":
         npid = getattr(a, "npid", None)
