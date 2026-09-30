@@ -62,6 +62,13 @@ class ApplySaveTest(RpcnDataCase):
         self.assertFalse(writer.is_alive())
         self.assertEqual(char_state(read(self.path), 0)[0], 29)
 
+    def test_two_writes_in_a_row_keep_both_backups(self):
+        first = ta.apply_save("Alice", self.edited, "set-rank")
+        after_first = read(self.path)
+        second = ta.apply_save("Alice", bytearray(self.original), "restore")
+        self.assertEqual(len(self.backups("Alice")), 2)
+        self.assertEqual((read(first["backup"]), read(second["backup"])), (self.original, after_first))
+
     def test_lock_files_stay_out_of_the_backup_listing(self):
         ta.apply_save("Alice", self.edited, "set-rank", label="base")
         self.assertEqual(ta.list_backups(), [{"npid": "Alice", "label": "base", "total": 0, "account_rank": 20}])

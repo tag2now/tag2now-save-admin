@@ -302,7 +302,9 @@ def backup_path(npid, label=None):
     """one directory per account, so names containing '_' cannot collide"""
     d = os.path.join(BACKUP_DIR, _safe(npid))
     os.makedirs(d, exist_ok=True)
-    stamp = label or dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    # to the microsecond: two writes in the same second must not share a backup file,
+    # or the second would replace the only copy of the save the first one changed
+    stamp = label or dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     return os.path.join(d, f"{stamp}.tdt")
 
 
