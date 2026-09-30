@@ -85,6 +85,7 @@ class RpcnDataCase(unittest.TestCase):
         con = sqlite3.connect(self.db_path)
         con.executescript(
             "CREATE TABLE account ( user_id INTEGER PRIMARY KEY, username TEXT NOT NULL );"
+            "CREATE TABLE account_timestamp ( user_id INTEGER PRIMARY KEY, creation INTEGER NOT NULL );"
             "CREATE TABLE tus_data ( owner_id UNSIGNED BIGINT NOT NULL, communication_id TEXT NOT NULL, "
             "slot_id INTEGER NOT NULL, data_id UNSIGNED BIGINT NOT NULL, data_info BLOB NOT NULL, "
             "timestamp UNSIGNED BIGINT NOT NULL, author_id UNSIGNED BIGINT NOT NULL, "
@@ -95,13 +96,15 @@ class RpcnDataCase(unittest.TestCase):
             "PRIMARY KEY (vuser, communication_id, slot_id) );")
         con.close()
 
-    def add_account(self, username, buf=None):
-        """an account, with a TTT2 save when buf is given; returns the save path"""
+    def add_account(self, username, buf=None, created=0):
+        """an account created at unix time `created`, with a TTT2 save when buf is given;
+        returns the save path"""
         uid = self._next_id
         self._next_id += 1
         con = sqlite3.connect(self.db_path)
         with con:
             con.execute("INSERT INTO account (user_id, username) VALUES (?, ?)", (uid, username))
+            con.execute("INSERT INTO account_timestamp (user_id, creation) VALUES (?, ?)", (uid, created))
         path = None
         if buf is not None:
             data_id = 1000 + uid
