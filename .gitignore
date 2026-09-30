@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+
+# runtime state kept next to floor_new_users.py on the host
+script/floor_new_users.json
+script/template_new_user.tdt
