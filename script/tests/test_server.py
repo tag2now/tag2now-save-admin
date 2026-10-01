@@ -56,7 +56,7 @@ class GatewayTest(ServerCase):
     def test_wrong_or_missing_api_key(self):
         for given in ("wrong", "", None):
             status, out = srv.handle(KEY, "/saves/show", given, b"{}")
-            self.assertEqual((status, out["error"]), (403, "forbidden"))
+            self.assertEqual((status, out["error"]), (403, "invalid_api_key"))
         self.verify_admin.assert_not_called()
 
     def test_unknown_route(self):
@@ -355,7 +355,7 @@ class HttpTest(ServerCase):
 
     def test_error_body(self):
         status, _, out = self.post("/saves/show", b"{}", key="wrong")
-        self.assertEqual((status, out["error"]), (403, "forbidden"))
+        self.assertEqual((status, out["error"]), (403, "invalid_api_key"))
 
     def test_oversized_body(self):
         status, _, out = self.post("/saves/show", b" " * (srv.MAX_BODY + 1))

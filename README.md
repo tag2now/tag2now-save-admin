@@ -74,7 +74,7 @@ Errors are `{"error": "<code>", "message": "..."}`:
 |--------|-------|
 | 400 | `invalid_request`, `ambiguous_user` |
 | 401 | `invalid_credentials` — wrong admin password |
-| 403 | `forbidden` — wrong `X-API-Key`, or not an active admin |
+| 403 | `invalid_api_key` — wrong `X-API-Key`; `forbidden` — not an active admin |
 | 404 | `not_found`, `user_not_found`, `save_not_found`, `backup_not_found` |
 | 409 | `online`, `save_changed`, `likely_demoted` (pass `refloor`) |
 | 502 | `rpcn_unavailable` — the admin check could not reach RPCN |
@@ -109,4 +109,4 @@ by tag2now-BE; this repository only releases the image.
 ECR, writes `SAVE_ADMIN_IMAGE_TAG` into the instance's `.env.prod`, and
 restarts only `save-admin`. It uses the `tag2now` org's SSH and AWS settings,
 like tag2now-BE and tag2now-FE, plus this repository's `ECR_REPOSITORY`
-variable (`tag2-now/save-admin`).
+variable (`tag2now/save-admin`).

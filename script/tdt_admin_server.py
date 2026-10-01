@@ -43,7 +43,7 @@ MAX_LOG = 500
 
 STATUS = {
     "invalid_request": 400, "ambiguous_user": 400,
-    "invalid_credentials": 401, "forbidden": 403,
+    "invalid_credentials": 401, "invalid_api_key": 403, "forbidden": 403,
     "not_found": 404, "user_not_found": 404, "save_not_found": 404, "backup_not_found": 404,
     "online": 409, "save_changed": 409, "likely_demoted": 409,
     "rpcn_unavailable": 502, "online_unknown": 503,
@@ -258,7 +258,7 @@ def request_body(raw):
 def handle(api_key, path, given_key, raw):
     """one request -> (status, body); the HTTP layer only moves bytes"""
     if not hmac.compare_digest((given_key or "").encode(), api_key.encode()):
-        return error("forbidden", "missing or wrong X-API-Key")
+        return error("invalid_api_key", "missing or wrong X-API-Key")
     route = ROUTES.get(path)
     if route is None:
         return error("not_found", f"no route {path}")
