@@ -1,0 +1,39 @@
+name: Test
+
+on:
+  workflow_call:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+jobs:
+  unit-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.9 is the oldest Python the CLI meets on the RPCN host; the
+        # server image is 3.12. Images, not setup-python, so 3.9 stays available.
+        image: ["python:3.9-slim", "python:3.12-alpine"]
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Unit tests
+        working-directory: script
+        run: python -m unittest discover -s tests -t . -v
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the server image and check it starts
+        run: |
+          docker build -t save-admin .
+          docker run -d --name save-admin -e TDT_ADMIN_API_KEY=ci -p 8000:8000 save-admin
+          for i in $(seq 20); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'X-API-Key: wrong' localhost:8000/saves/show) || true
+            [ "$status" = 403 ] && exit 0
+            sleep 1
+          done
+          docker logs save-admin
+          exit 1

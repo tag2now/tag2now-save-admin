@@ -1,0 +1,97 @@
+name: Build and deploy to production
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  # A tag push does not fire test.yml's branch triggers, so the release calls it.
+  test:
+    uses: ./.github/workflows/test.yml
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image: ${{ steps.build-image.outputs.image }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.ref_name }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+  # Production is a single Lightsail instance running docker compose, released
+  # over SSH. compose.prod.yml, which defines the save-admin service, is owned
+  # by tag2now-BE; this job only pins SAVE_ADMIN_IMAGE_TAG and restarts it.
+  deploy:
+    name: Deploy to production
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      PROD_HOST: ${{ secrets.PROD_HOST }}
+      PROD_USER: ${{ secrets.PROD_USER }}
+      PROD_DEPLOY_PATH: ${{ secrets.PROD_DEPLOY_PATH }}
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Pin the save-admin image tag
+        env:
+          IMAGE_TAG: ${{ github.ref_name }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$PROD_USER@$PROD_HOST" \
+            "cd '$PROD_DEPLOY_PATH' && \
+             test -f .env.prod && \
+             if grep -q '^SAVE_ADMIN_IMAGE_TAG=' .env.prod; then \
+               sed -i 's/^SAVE_ADMIN_IMAGE_TAG=.*/SAVE_ADMIN_IMAGE_TAG=$IMAGE_TAG/' .env.prod; \
+             else \
+               printf '\nSAVE_ADMIN_IMAGE_TAG=%s\n' '$IMAGE_TAG' >> .env.prod; \
+             fi"
+
+      - name: Release save-admin
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          IMAGE: ${{ needs.build.outputs.image }}
+        run: |
+          # The registry is whatever `build` actually pushed to.
+          ECR_REGISTRY="${IMAGE%%/*}"
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$PROD_USER@$PROD_HOST" \
+            "cd '$PROD_DEPLOY_PATH' && \
+             aws ecr get-login-password --region '$AWS_REGION' | docker login --username AWS --password-stdin '$ECR_REGISTRY' && \
+             docker compose --env-file .env.prod -f compose.prod.yml pull save-admin && \
+             docker compose --env-file .env.prod -f compose.prod.yml up -d save-admin"

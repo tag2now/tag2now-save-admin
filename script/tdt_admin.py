@@ -58,7 +58,8 @@ TUS_DIR = "/home/ec2-user/rpcn-data/tus_data"
 BACKUP_DIR = "/home/ec2-user/backup/tdt"
 ARCHIVE_DIR = "/home/ec2-user/backup/tdt_archive"
 AUDIT_LOG = "/home/ec2-user/backup/tdt/audit.jsonl"
-STAT_URL = "http://127.0.0.1:31315/admin/sessions"
+# rpcn-narco's API server; from a container on the host, http://host.docker.internal:31315
+RPCN_API_URL = os.environ.get("RPCN_API_URL", "http://127.0.0.1:31315")
 # rpcn-vpn-monitor 서비스의 EnvironmentFile. 환경변수가 없을 때 여기서 키를 읽는다
 STAT_ENV_FILE = "/etc/sysconfig/rpcn-vpn-monitor"
 
@@ -142,11 +143,18 @@ def reseal(buf):
 
 # ------------------------------------------------------------------ util
 class TdtError(Exception):
-    """the command cannot go on; main() prints it and exits 1"""
+    """the command cannot go on; main() prints it and exits 1.
+
+    code names the reason, for callers that answer each reason differently
+    (tdt_admin_server.py turns it into an HTTP status)"""
+
+    def __init__(self, message, code="invalid_request"):
+        super().__init__(message)
+        self.code = code
 
 
-def die(msg):
-    raise TdtError(msg)
+def die(msg, code="invalid_request"):
+    raise TdtError(msg, code)
 
 
 def md5(path):
@@ -166,7 +174,7 @@ def be16(b, o):
 
 def db():
     if not os.path.exists(DB_PATH):
-        die(f"database not found: {DB_PATH}")
+        die(f"database not found: {DB_PATH}", "db_unavailable")
     return sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
 
 
@@ -187,7 +195,7 @@ def resolve(name):
     found = _match(con, name)
     con.close()
     if len(found) != 1:
-        die(_match_error(name, found))
+        die(_match_error(name, found), "ambiguous_user" if found else "user_not_found")
     return found[0]
 
 
@@ -219,7 +227,7 @@ def lookup(npid):
         (npid, COM_ID, SLOT)).fetchone()
     con.close()
     if not row:
-        die(f"no {COM_ID} save for account {npid!r}")
+        die(f"no {COM_ID} save for account {npid!r}", "save_not_found")
     uid, data_id, ts = row
     saved = dt.datetime.utcfromtimestamp(ts / 1_000_000 - 62135596800)
     return uid, data_id, saved, os.path.join(TUS_DIR, f"{data_id:020d}.tdt")
@@ -243,7 +251,7 @@ def stat_api_key():
 
 def online():
     """접속 중인 계정의 npid(username) 집합. 세이브를 username으로 찾으므로 online_name이 아니라 npid로 비교한다"""
-    req = urllib.request.Request(STAT_URL, headers={"X-API-Key": stat_api_key()})
+    req = urllib.request.Request(RPCN_API_URL + "/admin/sessions", headers={"X-API-Key": stat_api_key()})
     try:
         with urllib.request.urlopen(req, timeout=5) as r:
             data = json.loads(r.read().decode())
@@ -258,10 +266,10 @@ def online():
 
 def read_save(path):
     if not os.path.exists(path):
-        die(f"save file missing: {path}")
+        die(f"save file missing: {path}", "save_not_found")
     b = bytearray(open(path, "rb").read())
     if len(b) != REC:
-        die(f"{path}: expected {REC} bytes, got {len(b)}")
+        die(f"{path}: expected {REC} bytes, got {len(b)}", "bad_save")
     return b
 
 
@@ -319,7 +327,7 @@ def find_backup(npid, label=None):
     name = f"{label}.tdt" if label else "*.tdt"
     found = sorted(glob.glob(os.path.join(BACKUP_DIR, _safe(npid), name)))
     if not found:
-        die(f"no backup matching {npid}/{name}")
+        die(f"no backup matching {npid}/{name}", "backup_not_found")
     return found[-1]
 
 
@@ -344,7 +352,8 @@ def ensure_unchanged(path, expect_sha256):
     with open(path, "rb") as f:
         now = hashlib.sha256(f.read()).hexdigest()
     if now != expect_sha256:
-        die("the save changed since it was read; nothing was written. Look at it again and retry.")
+        die("the save changed since it was read; nothing was written. Look at it again and retry.",
+            "save_changed")
 
 
 def online_or_stop(force):
@@ -354,7 +363,7 @@ def online_or_stop(force):
         return who
     if not force:
         die("API server unreachable, cannot check online status. "
-            "Nothing was written. Fix the API server, or pass --force.")
+            "Nothing was written. Fix the API server, or pass --force.", "online_unknown")
     print("  warn: API server unreachable and --force was given")
     return set()
 
@@ -365,7 +374,7 @@ def guard_online(npid, force, who=None):
     if npid in who:
         if not force:
             die(f"{npid} is online right now. The game would overwrite this edit "
-                f"on its next save. Wait until they log off, or pass --force.")
+                f"on its next save. Wait until they log off, or pass --force.", "online")
         print(f"  warn: {npid} is ONLINE and --force was given")
 
 
@@ -626,7 +635,7 @@ def apply_save(npid, buf, action, force=False, label=None, who=None, actor=None,
         audit(action, npid, actor=actor, data_id=data_id, backup=bak, md5_before=before,
               md5_after=after, checksum=f"0x{new_ck:08X}", verified=verified, **meta)
     if not verified:
-        die(f"verify failed: {path} does not match what was written")
+        die(f"verify failed: {path} does not match what was written", "verify_failed")
     return {"data_id": data_id, "data_id_now": data_id2, "backup": bak, "checksum": new_ck,
             "md5_before": before, "md5_after": after, "landed": data_id2 == data_id}
 
@@ -749,6 +758,12 @@ def cmd_apply(a):
         print("  (dry run, nothing written)")
         return
     _apply(a.npid, b, "apply", a.force, source=a.file)
+
+
+def check_floor_rank(rank):
+    """TdtError unless rank has floor points, so floor_buf can raise characters to it"""
+    if rank not in FLOOR_POINTS:
+        die(f"--rank must be {min(FLOOR_POINTS)}..{max(FLOOR_POINTS)}")
 
 
 def floor_for(m):
@@ -992,8 +1007,8 @@ def cmd_floor(a):
         if a.all or a.file or a.out or a.rank is not None or a.fix_points or a.refloor:
             die("--redo takes only npids, --label, --dry-run and --force")
         return cmd_floor_redo(a)
-    if a.rank is not None and a.rank not in FLOOR_POINTS:
-        die(f"--rank must be {min(FLOOR_POINTS)}..{max(FLOOR_POINTS)}")
+    if a.rank is not None:
+        check_floor_rank(a.rank)
     if a.out and not a.file:
         die("--output-file needs --input-file")
     if a.file:
@@ -1058,12 +1073,16 @@ def cmd_restore(a):
     _apply(a.npid, b, "restore", a.force, source=src)
 
 
-def read_log(n):
-    """the last n audit records, oldest first; none when nothing was ever written"""
+def read_log(n, npid=None):
+    """the last n audit records, of npid only when given, oldest first;
+    none when nothing was ever written"""
     if not os.path.exists(AUDIT_LOG):
         return []
     with open(AUDIT_LOG, encoding="utf-8") as f:
-        return [json.loads(line) for line in f.read().splitlines()[-n:]]
+        recs = [json.loads(line) for line in f.read().splitlines()]
+    if npid is not None:
+        recs = [r for r in recs if r["npid"] == npid]
+    return recs[-n:]
 
 
 def cmd_log(a):
