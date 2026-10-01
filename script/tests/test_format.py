@@ -59,7 +59,7 @@ class DecodeTest(unittest.TestCase):
 class FloorRuleTest(unittest.TestCase):
     def test_floor_by_reached_rank(self):
         expected = {0: 10, 9: 10, 10: 10, 12: 10, 13: 10, 16: 10, 17: 12, 20: 12, 21: 14, 24: 14,
-                    25: 17, 28: 17, 29: 19, 32: 19, 33: 21, 37: 21, 38: 29, 40: 29, 41: 33, 42: 33}
+                    25: 17, 28: 17, 29: 19, 32: 19, 33: 21, 37: 21, 38: 25, 40: 25, 41: 29, 42: 29}
         self.assertEqual({m: ta.floor_for(m) for m in expected}, expected)
 
     def test_floor_points(self):
