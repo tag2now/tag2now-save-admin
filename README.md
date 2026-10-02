@@ -42,7 +42,7 @@ FE ──▶ tag2now-BE (signed-in admin) ──X-API-Key + admin id/pw──▶
                                                                 RPCN API server (31315)
 ```
 
-- **Two checks per admin request.** `X-API-Key` must equal `TDT_ADMIN_API_KEY`, and the
+- **Two checks per admin request.** `X-API-Key` must equal `SAVE_ADMIN_KEY`, and the
   body's `admin_username` / `admin_password` must pass RPCN's
   `/admin/users/info` — an admin that is not banned. The password is the
   RPCS3-derived value tag2now-BE already sends to RPCN; it is never stored.
@@ -105,12 +105,15 @@ by tag2now-BE; this repository only releases the image.
   whatever this server wrote — `floor --redo` reopens backup paths straight
   from the audit log — and a `flock` taken here also holds against the CLI.
 
-| Variable | Value |
-|----------|-------|
-| `TDT_ADMIN_API_KEY` | What `be` sends as `X-API-Key`. The server refuses to start without it |
-| `RPCN_STAT_API_KEY` | rpcn.cfg `ApiServerApiKey` |
-| `RPCN_API_URL` | `http://host.docker.internal:31315` |
-| `TDT_ADMIN_BIND` | `0.0.0.0:8000` in the image; leave it |
+The service reads `be`'s `.env.prod` through `env_file`, so each variable also
+answers to `be`'s name for it (used when the first name is unset).
+
+| Variable | `be`'s name | Value |
+|----------|-------------|-------|
+| `SAVE_ADMIN_KEY` | (same) | What `be` sends as `X-API-Key`. The server refuses to start without it |
+| `RPCN_STAT_API_KEY` | `RPCN_API_SERVER_KEY` | rpcn.cfg `ApiServerApiKey` |
+| `RPCN_API_URL` | `RPCN_API_SERVER_URL` | `http://host.docker.internal:31315` |
+| `TDT_ADMIN_BIND` | | `0.0.0.0:8000` in the image; leave it |
 
 **Release:** push a `v*` tag. `deploy.yml` runs the tests, pushes the image to
 ECR, writes `SAVE_ADMIN_IMAGE_TAG` into the instance's `.env.prod`, and

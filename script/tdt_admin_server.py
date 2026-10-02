@@ -4,7 +4,7 @@
 Serves a few of tdt_admin's commands as JSON, from a container on the RPCN host
 (see Dockerfile). tag2now-BE is the only caller.
 
-Every request carries X-API-Key: $TDT_ADMIN_API_KEY. The /saves routes forward
+Every request carries X-API-Key: $SAVE_ADMIN_KEY. The /saves routes forward
 an admin's request, and their body also carries the admin's RPCN username and
 password (as RPCS3 derives it). The password is checked with RPCN's own admin
 API on each request and never stored, so a revoked or banned admin loses access
@@ -29,7 +29,7 @@ Write fields: dry_run (preview only) and expect_sha256 (required to write: the
 sha256 a preview returned, so an edit never lands on a save that changed since).
 Errors are {"error": "<code>", "message": "..."}.
 
-    TDT_ADMIN_API_KEY=... [RPCN_STAT_API_KEY=...] [RPCN_API_URL=...] tdt_admin_server.py [--bind HOST:PORT]
+    SAVE_ADMIN_KEY=... [RPCN_STAT_API_KEY=...] [RPCN_API_URL=...] tdt_admin_server.py [--bind HOST:PORT]
 """
 import os
 import re
@@ -353,9 +353,9 @@ def main():
                    help=f"HOST:PORT to listen on (env TDT_ADMIN_BIND, default {DEFAULT_BIND})")
     a = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    api_key = os.environ.get("TDT_ADMIN_API_KEY", "")
+    api_key = os.environ.get("SAVE_ADMIN_KEY", "")
     if not api_key:
-        sys.exit("error: TDT_ADMIN_API_KEY is not set; refusing to serve without a key")
+        sys.exit("error: SAVE_ADMIN_KEY is not set; refusing to serve without a key")
     server = serve(a.bind, api_key)
     log.info("listening on %s, RPCN API at %s", a.bind, ta.RPCN_API_URL)
     server.serve_forever()

@@ -29,7 +29,7 @@ jobs:
       - name: Build the server image and check it starts
         run: |
           docker build -t save-admin .
-          docker run -d --name save-admin -e TDT_ADMIN_API_KEY=ci -p 8000:8000 save-admin
+          docker run -d --name save-admin -e SAVE_ADMIN_KEY=ci -p 8000:8000 save-admin
           for i in $(seq 20); do
             status=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'X-API-Key: wrong' localhost:8000/saves/show) || true
             [ "$status" = 403 ] && exit 0
