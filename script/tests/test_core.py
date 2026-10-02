@@ -69,6 +69,14 @@ class ApplySaveTest(RpcnDataCase):
         self.assertEqual(len(self.backups("Alice")), 2)
         self.assertEqual((read(first["backup"]), read(second["backup"])), (self.original, after_first))
 
+    def test_writes_a_save_it_cannot_write_through_its_directory(self):
+        # RPCN's saves are root's 644; the container's ec2-user can only write tus_data
+        os.chmod(self.path, 0o444)
+        ta.apply_save("Alice", self.edited, "set-rank")
+        self.assertEqual(char_state(read(self.path), 0)[0], 29)
+        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o444)
+        self.assertEqual([f for f in os.listdir(self.tus_dir) if f.endswith(".tmp")], [])
+
     def test_lock_files_stay_out_of_the_backup_listing(self):
         ta.apply_save("Alice", self.edited, "set-rank", label="base")
         self.assertEqual(ta.list_backups(), [{"npid": "Alice", "label": "base", "total": 0, "account_rank": 20}])

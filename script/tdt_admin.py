@@ -278,8 +278,26 @@ def read_save(path):
 
 
 def write_save(path, buf):
-    """replace in place, preserving owner and mode (uses sudo when needed)"""
+    """replace in place, preserving mode.
+
+    RPCN runs as root, so most saves are root's. When the file itself is not writable but
+    its directory is (ec2-user owns tus_data), the save is swapped in through a temp file
+    in that directory: no root needed, which the save-admin container has none of, and the
+    swapped file is ec2-user's. Otherwise sudo, preserving the owner too."""
     st = os.stat(path)
+    d = os.path.dirname(path)
+    if not os.access(path, os.W_OK) and os.access(d, os.W_OK):
+        tmp = os.path.join(d, f".tdt_admin_{os.getpid()}.tmp")
+        try:
+            with open(tmp, "wb") as f:
+                f.write(bytes(buf))
+            os.chmod(tmp, st.st_mode & 0o777)
+            os.replace(tmp, path)
+        except BaseException:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
+        return
     tmp = os.path.join("/tmp", f".tdt_admin_{os.getpid()}.tmp")
     with open(tmp, "wb") as f:
         f.write(bytes(buf))
