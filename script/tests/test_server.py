@@ -2,6 +2,7 @@
 import json
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -35,7 +36,7 @@ class ServerCase(RpcnDataCase):
     def call(self, path, **body):
         body.setdefault("admin_username", "Admin")
         body.setdefault("admin_password", "DERIVED")
-        return srv.handle(KEY, path, KEY, json.dumps(body).encode())
+        return srv.handle(KEY, "POST", path, KEY, json.dumps(body).encode())
 
     def ok(self, path, **body):
         status, out = self.call(path, **body)
@@ -55,17 +56,24 @@ class GatewayTest(ServerCase):
 
     def test_wrong_or_missing_api_key(self):
         for given in ("wrong", "", None):
-            status, out = srv.handle(KEY, "/saves/show", given, b"{}")
+            status, out = srv.handle(KEY, "POST", "/saves/show", given, b"{}")
             self.assertEqual((status, out["error"]), (403, "invalid_api_key"))
         self.verify_admin.assert_not_called()
 
     def test_unknown_route(self):
-        status, out = srv.handle(KEY, "/saves/delete", KEY, b"{}")
+        status, out = srv.handle(KEY, "POST", "/saves/delete", KEY, b"{}")
         self.assertEqual((status, out["error"]), (404, "not_found"))
+
+    def test_known_route_with_the_wrong_method(self):
+        # GET would put the admin password in the URL; POST is the only way in
+        for method, path in (("GET", "/saves/show?username=Alice"), ("POST", "/player/save")):
+            status, out = srv.handle(KEY, method, path, KEY, b"{}")
+            self.assertEqual((status, out["error"]), (405, "method_not_allowed"), method)
+        self.verify_admin.assert_not_called()
 
     def test_body_must_be_a_json_object(self):
         for raw in (b"not json", b"[1, 2]", b"\xff"):
-            status, out = srv.handle(KEY, "/saves/show", KEY, raw)
+            status, out = srv.handle(KEY, "POST", "/saves/show", KEY, raw)
             self.assertEqual((status, out["error"]), (400, "invalid_request"), raw)
 
     def test_admin_credentials_are_required(self):
@@ -126,6 +134,42 @@ class ReadRoutesTest(ServerCase):
 
     def test_log_count_must_be_a_number(self):
         self.fails("/saves/log", 400, "invalid_request", n="10")
+
+
+class PlayerSaveRouteTest(ServerCase):
+    """the read-only view anyone's profile shows: no admin, and only ranks and records"""
+
+    def setUp(self):
+        super().setUp()
+        self.add_account("Alice", make_save(chars=[(0, 20, 1500, 10, 5), (7, 3, 100, 1, 0)], account_rank=20))
+
+    def player_save(self, username, key=KEY):
+        return srv.handle(KEY, "GET", "/player/save?" + urllib.parse.urlencode({"username": username}), key)
+
+    def test_needs_no_admin(self):
+        status, out = self.player_save("alice")
+        self.assertEqual(status, 200, out)
+        self.verify_admin.assert_not_called()
+
+    def test_answers_ranks_and_records_only(self):
+        _, out = self.player_save("Alice")
+        self.assertEqual(set(out), {"npid", "saved_utc", "account_rank", "total", "wins", "losses", "chars"})
+        self.assertEqual((out["npid"], out["account_rank"]), ("Alice", 20))
+        self.assertEqual([(c["id"], c["rank"], c["points"]) for c in out["chars"]], [(0, 20, 1500), (7, 3, 100)])
+
+    def test_still_needs_the_api_key(self):
+        status, out = self.player_save("Alice", key="wrong")
+        self.assertEqual((status, out["error"]), (403, "invalid_api_key"))
+
+    def test_needs_a_username(self):
+        status, out = srv.handle(KEY, "GET", "/player/save", KEY)
+        self.assertEqual((status, out["error"]), (400, "invalid_request"))
+
+    def test_unknown_account_and_missing_save(self):
+        self.add_account("Bob")
+        for name, code in (("nobody", "user_not_found"), ("Bob", "save_not_found")):
+            status, out = self.player_save(name)
+            self.assertEqual((status, out["error"]), (404, code), name)
 
 
 class SetRankRouteTest(ServerCase):
@@ -361,10 +405,21 @@ class HttpTest(ServerCase):
         status, _, out = self.post("/saves/show", b" " * (srv.MAX_BODY + 1))
         self.assertEqual((status, out["error"]), (400, "invalid_request"))
 
-    def test_get_is_not_allowed(self):
-        with self.assertRaises(urllib.error.HTTPError) as cm:
-            urllib.request.urlopen(self.base + "/saves/show", timeout=5)
-        self.assertEqual(cm.exception.code, 405)
+    def get(self, target, key=KEY):
+        req = urllib.request.Request(self.base + target, headers={"X-API-Key": key})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    def test_player_save_is_a_get(self):
+        status, out = self.get("/player/save?username=alice")
+        self.assertEqual((status, out["account_rank"]), (200, 20))
+
+    def test_admin_routes_refuse_get(self):
+        status, out = self.get("/saves/show?username=Alice")
+        self.assertEqual((status, out["error"]), (405, "method_not_allowed"))
 
 
 if __name__ == "__main__":

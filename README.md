@@ -42,10 +42,16 @@ FE ──▶ tag2now-BE (signed-in admin) ──X-API-Key + admin id/pw──▶
                                                                 RPCN API server (31315)
 ```
 
-- **Two checks per request.** `X-API-Key` must equal `TDT_ADMIN_API_KEY`, and the
+- **Two checks per admin request.** `X-API-Key` must equal `TDT_ADMIN_API_KEY`, and the
   body's `admin_username` / `admin_password` must pass RPCN's
   `/admin/users/info` — an admin that is not banned. The password is the
   RPCS3-derived value tag2now-BE already sends to RPCN; it is never stored.
+- **One read for everyone.** `/player/save` is what tag2now-BE shows on any
+  player's profile, so it needs only `X-API-Key`. It answers ranks and records
+  (`npid, saved_utc, account_rank, total, wins, losses, chars`) and nothing
+  that locates or fingerprints the file or says whether the player is online.
+  It is the only GET; the `/saves` routes are POST so the admin password never
+  lands in a URL or an access log.
 - **Writes are two steps.** Send the request with `dry_run: true` to get the
   changes and the save's `sha256`, then send it again with
   `expect_sha256` set to that value. A save that changed in between, or an
@@ -53,8 +59,9 @@ FE ──▶ tag2now-BE (signed-in admin) ──X-API-Key + admin id/pw──▶
 - **Not served:** `--force`, `floor --all`, `floor --redo`, `gc`, and anything
   that takes a file path. Those stay on the command line.
 
-| Route | Body |
+| Route | Arguments |
 |-------|------|
+| `GET /player/save` | `?username=` |
 | `POST /saves/show` | `username`, `all_chars?` |
 | `POST /saves/backups` | `username` |
 | `POST /saves/log` | `username?`, `n?` (1..500, default 50) |
@@ -63,7 +70,7 @@ FE ──▶ tag2now-BE (signed-in admin) ──X-API-Key + admin id/pw──▶
 | `POST /saves/floor` | `username`, `rank?`, `fix_points?`, `refloor?` |
 | `POST /saves/restore` | `username`, `label` |
 
-Every body also carries `admin_username` and `admin_password`; the last four
+Every `/saves` body also carries `admin_username` and `admin_password`; the last four
 also take `dry_run` and `expect_sha256`. A write answers
 `{username, sha256, online, changes, applied, result}`, where `changes` lists
 each character whose rank, points or streak differs.

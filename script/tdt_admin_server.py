@@ -2,12 +2,20 @@
 """HTTP front for tdt_admin, for the tag2now admin page.
 
 Serves a few of tdt_admin's commands as JSON, from a container on the RPCN host
-(see Dockerfile). tag2now-BE is the only caller; it forwards an admin's request.
+(see Dockerfile). tag2now-BE is the only caller.
 
-Every request carries X-API-Key: $TDT_ADMIN_API_KEY, and a body with the admin's
-RPCN username and password (as RPCS3 derives it). The password is checked with
-RPCN's own admin API on each request and never stored, so a revoked or banned
-admin loses access at once.
+Every request carries X-API-Key: $TDT_ADMIN_API_KEY. The /saves routes forward
+an admin's request, and their body also carries the admin's RPCN username and
+password (as RPCS3 derives it). The password is checked with RPCN's own admin
+API on each request and never stored, so a revoked or banned admin loses access
+at once.
+
+    GET  /player/save?username=NPID
+
+/player/save is the read-only view tag2now-BE shows on any player's profile, so
+it needs only the key and answers only ranks and records: nothing that locates
+the file, fingerprints it, or says whether the player is online. It is the one
+GET: the /saves routes are POST so the admin password never lands in a URL.
 
     POST /saves/show                {username, all_chars?}
     POST /saves/backups             {username}
@@ -32,6 +40,7 @@ import hashlib
 import logging
 import argparse
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -45,6 +54,7 @@ STATUS = {
     "invalid_request": 400, "ambiguous_user": 400,
     "invalid_credentials": 401, "invalid_api_key": 403, "forbidden": 403,
     "not_found": 404, "user_not_found": 404, "save_not_found": 404, "backup_not_found": 404,
+    "method_not_allowed": 405,
     "online": 409, "save_changed": 409, "likely_demoted": 409,
     "rpcn_unavailable": 502, "online_unknown": 503,
 }
@@ -161,6 +171,14 @@ def write(req, admin, npid, before, after, action, **meta):
 
 
 # ------------------------------------------------------------------ routes
+PLAYER_SAVE_FIELDS = ("npid", "saved_utc", "account_rank", "total", "wins", "losses", "chars")
+
+
+def route_player_save(req):
+    d = ta.show_save(account(req))
+    return {k: d[k] for k in PLAYER_SAVE_FIELDS}
+
+
 def route_show(req, admin):
     npid = account(req)
     return {**ta.show_save(npid, bool(req.get("all_chars"))), "online": online_state(npid)}
@@ -229,20 +247,41 @@ def route_restore(req, admin):
     return write(req, admin, npid, live(npid), ta.read_save(src), "restore", source=src)
 
 
+def as_admin(route):
+    """route behind RPCN's admin check; it is given the checked admin's username"""
+    def checked(req):
+        admin = need(req, "admin_username")
+        verify_admin(admin, need(req, "admin_password"))
+        return route(req, admin)
+    return checked
+
+
 ROUTES = {
-    "/saves/show": route_show,
-    "/saves/backups": route_backups,
-    "/saves/log": route_log,
-    "/saves/set-rank": route_set_rank,
-    "/saves/set-account-rank": route_set_account_rank,
-    "/saves/floor": route_floor,
-    "/saves/restore": route_restore,
+    ("GET", "/player/save"): route_player_save,
+    ("POST", "/saves/show"): as_admin(route_show),
+    ("POST", "/saves/backups"): as_admin(route_backups),
+    ("POST", "/saves/log"): as_admin(route_log),
+    ("POST", "/saves/set-rank"): as_admin(route_set_rank),
+    ("POST", "/saves/set-account-rank"): as_admin(route_set_account_rank),
+    ("POST", "/saves/floor"): as_admin(route_floor),
+    ("POST", "/saves/restore"): as_admin(route_restore),
 }
 
 
 # -------------------------------------------------------------------- http
 def error(code, message):
     return STATUS.get(code, 500), {"error": code, "message": message}
+
+
+def unrouted(method, path):
+    if any(known == path for _, known in ROUTES):
+        return error("method_not_allowed", f"{path} does not take {method}")
+    return error("not_found", f"no route {path}")
+
+
+def query_args(query):
+    """a GET's query string as a request: one value per name"""
+    return {name: values[-1] for name, values in urllib.parse.parse_qs(query).items()}
 
 
 def request_body(raw):
@@ -255,22 +294,22 @@ def request_body(raw):
     return req
 
 
-def handle(api_key, path, given_key, raw):
-    """one request -> (status, body); the HTTP layer only moves bytes"""
+def handle(api_key, method, target, given_key, raw=b""):
+    """one request -> (status, body); the HTTP layer only moves bytes.
+    A GET's arguments are its query string, a POST's its JSON body."""
     if not hmac.compare_digest((given_key or "").encode(), api_key.encode()):
         return error("invalid_api_key", "missing or wrong X-API-Key")
-    route = ROUTES.get(path)
+    url = urllib.parse.urlsplit(target)
+    route = ROUTES.get((method, url.path))
     if route is None:
-        return error("not_found", f"no route {path}")
+        return unrouted(method, url.path)
     try:
-        req = request_body(raw)
-        admin = need(req, "admin_username")
-        verify_admin(admin, need(req, "admin_password"))
-        return 200, route(req, admin)
+        req = query_args(url.query) if method == "GET" else request_body(raw)
+        return 200, route(req)
     except ta.TdtError as e:
         return error(e.code, str(e))
     except Exception:
-        log.exception("%s failed", path)
+        log.exception("%s %s failed", method, url.path)
         return error("internal_error", "internal error; see the server log")
 
 
@@ -284,10 +323,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(*error("invalid_request", f"body over {MAX_BODY} bytes"))
             return
         raw = self.rfile.read(size)
-        self.send_json(*handle(self.api_key, self.path, self.headers.get("X-API-Key"), raw))
+        self.send_json(*handle(self.api_key, "POST", self.path, self.headers.get("X-API-Key"), raw))
 
     def do_GET(self):
-        self.send_json(405, {"error": "method_not_allowed", "message": "use POST"})
+        self.send_json(*handle(self.api_key, "GET", self.path, self.headers.get("X-API-Key")))
 
     def send_json(self, status, body):
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
