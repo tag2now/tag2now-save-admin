@@ -42,7 +42,7 @@ RPCN 운영 서버의 세이브 **57,715개 / 263명**이 원본이다. 파일�
 | Characters | `0x070`–`0xB7F` | 59 × 48 B | 캐릭터별 계급과 전적 |
 | Tail | `0xB80`–`0xD5B` | 476 B | 진행 중인 대전 상태, 계정 총계 |
 
-캐릭터 ID가 `i`면 레코드 시작은 `0x70 + i * 0x30`이다. ID와 레코드 위치의 대응은 \*\*\[확정\]\*\*이고, 이름표는 다르다(아래 별도 절).
+캐릭터 ID가 `i`면 레코드 시작은 `0x70 + i * 0x30`이다. ID와 레코드 위치의 대응은 \*\*\[확정\]\*\*이다. 이름은 [캐릭터 ID](#캐릭터-id) 절 참조.
 
 저장의 **52%는 전적이 전혀 변하지 않는 재업로드**다. 변화를 기대하고 파싱하면 안 된다.
 
@@ -314,55 +314,11 @@ python tdt_tool.py set    <in.tdt> <out.tdt> 0x0678 u32:9999 0x0CDC u32:9999
 python make_probe.py      <in.tdt> <out.tdt>   # 로스터 확정용 프로브
 ```
 
+같은 프로브 방식으로 계급 이름도 확정할 수 있다 — 캐릭터 `i`의 계급을 `i`로 심으면 42개 계급명이 한 화면에 나온다.
+
 ## 캐릭터 ID
 
-숫자 ID와 레코드 위치의 대응은 \*\*\[확정\]\*\*이다. 이름표는 다르다.
-
-### 게임 실측으로 확정된 5개
-
-| ID | 이름 | 근거 |
-| --- | --- | --- |
-| 1 | Marshall Law | 태그 1승(Law+Forest Law) + 단독 1패(Law) → 슬롯1 = 1승1패, 슬롯47 = 1승0패 |
-| 47 | Forest Law | 위와 같음 |
-| 13 | Heihachi | 로컬 실험 |
-| 32 | Dragunov | 로컬 실험 |
-| 56 | Dr. Bosconovitch | 로컬 실험 |
-
-### 이름 집합은 검증됨
-
-[TekkenMods 공식 문서](https://github.com/Modding-Zaibatsu/tekkenmods-docs/blob/main/files/en/Tekken_Tag_Tournament_2/Basic_Information/Overview/Characters/index.md)의 로스터와 대조한 결과:
-
-- 공식 로스터는 더미(PRA) 제외 **정확히 59명**으로 세이브의 59칸과 같다
-- 후보표와의 차이는 단 하나 — Michelle이 46, 51 **두 번** 들어가고 Angel이 **빠져** 있다
-- 나머지 57개 이름은 공식과 완전 일치 (누락/초과 0)
-
-→ **46과 51 중 하나가 Angel, 다른 하나가 Michelle**이다. 어느 쪽인지는 모른다.
-
-⚠️ \[확정\]인 것은 이름의 **집합**뿐이고, 슬롯 번호와 이름의 **대응**은 위 5건 외에는 전부 미검증이다. 앞커 5개가 1–56에 흔어져 있으면서 모두 후보표와 맞는 것은 방증이지 증명은 아니다.
-
-### 후보 이름표 — 슬롯 대응 미검증
-
-```text
- 0 Paul         1 Law*         2 Lei          3 King         4 Yoshimitsu
- 5 Nina         6 Hwoarang     7 Xiaoyu       8 Christie     9 Jin
-10 Julia       11 Kuma        12 Bryan       13 Heihachi*   14 Kazuya
-15 Lee         16 Steve       17 Marduk      18 Mokujin     19 Jack-6
-20 Roger Jr    21 Anna        22 Wang        23 Ganryu      24 Asuka
-25 Bruce       26 Baek        27 Devil Jin   28 Raven       29 Feng
-30 Armor King  31 Lili        32 Dragunov*   33 Eddy        34 Bob
-35 Zafina      36 Miguel      37 Leo         38 Lars        39 Alisa
-40 Jinpachi    41 True Ogre   42 Jun         43 Panda       44 Unknown
-45 Kunimitsu   46 Angel/Mich  47 Forest Law* 48 Miharu      49 P.Jack
-50 Sebastian   51 Angel/Mich  52 Combot      53 Alex        54 Ancient Ogre
-55 Violet      56 Dr. B*      57 Slim Bob    58 Tiger Jackson
-                                              (* = 게임 실측 확정)
-```
-
-### 한 번에 확정하는 방법
-
-`make_probe.py`가 슬롯 `i`에 \*\*승 = `i+1`, 패 = `59-i`\*\*를 써넣는다. 전적 화면을 한 번 열면 59개가 한꺼번에 식별된다. **승+패가 항상 60**이라 한 칸이라도 잘못 읽으면 바로 드러난다.
-
-동일한 방법으로 계급 이름도 확정할 수 있다 — 캐릭터 `i`의 계급을 `i`로 심으면 42개 계급명이 한 화면에 나온다.
+숫자 ID와 레코드 위치의 대응은 \*\*\[확정\]\*\*이다. ID별 캐릭터 이름은 [`tag2now-BE/src/matching/constants.py`](https://github.com/tag2now/tag2now-BE/blob/master/src/matching/constants.py)의 `TTT2_CHARACTERS`를 따른다. `tdt_admin.py`도 이름을 거기서 받아 쓴다(tag2now-BE `GET /game-data`).
 
 ## 남은 과제
 
@@ -370,8 +326,6 @@ python make_probe.py      <in.tdt> <out.tdt>   # 로스터 확정용 프로브
 
 | 과제 | 푸는 방법 | 난이도 |
 | --- | --- | --- |
-| 캐릭터 이름표 59개 확정 | `make_probe.py` 적용 후 전적 화면 1회 확인 | 쉬움 |
-| 46/51 중 어느 쪽이 Angel인가 | 위 프로브에 포함됨 | 쉬움 |
 | `0x30`–`0x3B` 갱신 조건 | 모드별로 대전해보며 어느 모드에서 오르는지 확인 | 중간 |
 | 승급 시 `rank_points` 리셋 규칙 | 계급별 리셋 폭을 더 모아 패턴 찾기 | 중간 |
 | 계급 13이 진짜 티어 경계인가 | 계급 이름 확정 후 판단 | 중간 |

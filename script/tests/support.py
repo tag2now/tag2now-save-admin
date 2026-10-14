@@ -20,6 +20,45 @@ import tdt_admin as ta
 # RPCN stores timestamps as microseconds since 0001-01-01
 TICK_EPOCH = 62135596800
 
+# tag2now-BE's GET /game-data, as of this writing; every test reads names from it
+_NAMES = [
+    "Paul", "Law", "Lei", "King", "Yoshimitsu", "Nina", "Hwoarang", "Xiayu",
+    "Christie", "Jin", "Julia", "Kuma", "Bryan", "Heihachi", "Kazuya", "Lee",
+    "Steve", "Marduk", "Mokujin", "Jack", "Roger Jr.", "Anna", "Wang", "Ganryu",
+    "Asuka", "Bruce", "Baek", "Devil Jin", "Raven", "Feng", "Armor King", "Lili",
+    "Dragunov", "Eddy", "Bob", "Zafina", "Miguel", "Leo", "Lars", "Alisa",
+    "Jinpachi", "True Ogre", "Jun", "Panda", "Unknown", "Kunimitsu", "Michelle", "Forest Law",
+    "Miharu", "P-Jack", "Sebastian", "Michelle", "Combot", "Alex", "Ancient Ogre", "Violet",
+    "Dr.", "Slim Bob", "Tiger",
+]
+_RANKS = (
+    [("Beginner", "숫자단")] + [(f"{n}{s} kyu", "숫자단") for n, s in
+                              zip(range(9, 0, -1), ["th"] * 6 + ["rd", "nd", "st"])]
+    + [("1st dan", "숫자단"), ("2nd dan", "숫자단"), ("3rd dan", "숫자단")]
+    + [(n, "액자단") for n in ("Disciple", "Mentor", "Master", "Grand Master")]
+    + [(n, "녹단") for n in ("Brawler", "Marauder", "Fighter", "Berserker")]
+    + [(n, "노랑단") for n in ("Warrior", "Avenger", "Duelist", "Pugilist")]
+    + [(n, "주황단") for n in ("Vanquisher", "Destroyer", "Conqueror", "Savior")]
+    + [(n, "빨강단") for n in ("Genbu", "Byakko", "Seiryu", "Suzaku")]
+    + [(n, "파랑단") for n in ("Fujin", "Raijin", "Yaksa", "Majin", "Toshin")]
+    + [(n, "보라단") for n in ("Emperor", "Tekken Lord", "Tekken Emperor")]
+    + [("Tekken God", "God"), ("True Tekken God", "God")]
+)
+GAME_DATA = {
+    "characters": [{"id": i, "name": n} for i, n in enumerate(_NAMES)],
+    "ranks": [{"id": i, "name": n, "tier": t} for i, (n, t) in enumerate(_RANKS)],
+}
+
+
+def reset_game_data():
+    """forget the names tdt_admin holds, so the next lookup fetches again"""
+    ta._game_data, ta._game_data_checked, ta._warned_stale = None, 0.0, False
+
+
+# No test reaches a real tag2now-BE; test_game_data replaces this per test
+real_fetch_game_data = ta.fetch_game_data
+ta.fetch_game_data = lambda: GAME_DATA
+
 
 def slot(i):
     return ta.CHAR_BASE + i * ta.CHAR_STRIDE

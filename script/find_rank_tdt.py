@@ -14,7 +14,7 @@ import tdt_admin as tdt
 def character_ids(value: str) -> tuple[int, ...]:
     matches = tuple(
         character_id
-        for character_id, name in tdt.CHARACTERS.items()
+        for character_id, name in tdt.names_to_ids().chars.items()
         if name.casefold() == value.casefold()
     )
     if not matches:
@@ -23,7 +23,7 @@ def character_ids(value: str) -> tuple[int, ...]:
 
 
 def rank_id(value: str) -> int:
-    for candidate, (name, _) in tdt.RANKS.items():
+    for candidate, (name, _) in tdt.names_to_ids().ranks.items():
         if name.casefold() == value.casefold():
             return candidate
     raise argparse.ArgumentTypeError(f"Unknown rank: {value}")
@@ -133,8 +133,8 @@ def main() -> int:
             "modified_at": modified_at.isoformat(timespec="seconds"),
         })
 
-    character = tdt.CHARACTERS[args.character[0]]
-    rank = tdt.RANKS[args.rank][0]
+    character = tdt.char_name(args.character[0])
+    rank = tdt.rank_name(args.rank)[0]
 
     if args.format == "json":
         print(json.dumps({

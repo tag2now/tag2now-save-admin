@@ -62,6 +62,12 @@ AUDIT_LOG = "/home/ec2-user/backup/tdt/audit.jsonl"
 # RPCN_API_SERVER_URL is be's name for it, so the container can share be's .env.prod
 RPCN_API_URL = (os.environ.get("RPCN_API_URL") or os.environ.get("RPCN_API_SERVER_URL")
                 or "http://127.0.0.1:31315")
+# tag2now-BE, which serves the character and rank names (GET /game-data); from the
+# save-admin container it is http://be:8000, which compose sets
+TAG2NOW_API_URL = (os.environ.get("TAG2NOW_API_URL") or "http://127.0.0.1:8000").rstrip("/")
+GAME_DATA_TTL = 300      # seconds a fetched table is used before asking again
+GAME_DATA_RETRY = 30     # seconds between attempts while BE is unreachable
+GAME_DATA_TIMEOUT = 2
 # rpcn-vpn-monitor 서비스의 EnvironmentFile. 환경변수가 없을 때 여기서 키를 읽는다
 STAT_ENV_FILE = "/etc/sysconfig/rpcn-vpn-monitor"
 
@@ -69,6 +75,7 @@ CHAR_BASE, CHAR_STRIDE, CHAR_N = 0x70, 0x30, 59
 OFF_ACCOUNT_RANK, OFF_ACCOUNT_PROGRESS = 0x18, 0x1B
 OFF_TOTAL, OFF_WINS, OFF_LOSSES = 0x20, 0xCDC, 0xCE0
 SLOT_RANK, SLOT_POINTS, SLOT_STREAK, SLOT_WIN, SLOT_LOSS = 0x00, 0x02, 0x04, 0x08, 0x0C
+RANK_N = 43
 ALL_CHARS = -1   # set-rank --char all
 
 # floor policy: reached tier (account rank = high water mark) -> floor rank.
@@ -401,60 +408,121 @@ def guard_online(npid, force, who=None):
 
 
 # ----------------------------------------------------------------- render
-# TTT2 internal character id -> display name
-CHARACTERS = {
-    0x00: "Paul", 0x01: "Law", 0x02: "Lei", 0x03: "King",
-    0x04: "Yoshimitsu", 0x05: "Nina", 0x06: "Hwoarang", 0x07: "Xiayu",
-    0x08: "Christie", 0x09: "Jin", 0x0A: "Julia", 0x0B: "Kuma",
-    0x0C: "Bryan", 0x0D: "Heihachi", 0x0E: "Kazuya", 0x0F: "Lee",
-    0x10: "Steve", 0x11: "Marduk", 0x12: "Mokujin", 0x13: "Jack",
-    0x14: "Roger Jr.", 0x15: "Anna", 0x16: "Wang", 0x17: "Ganryu",
-    0x18: "Asuka", 0x19: "Bruce", 0x1A: "Baek", 0x1B: "Devil Jin",
-    0x1C: "Raven", 0x1D: "Feng", 0x1E: "Armor King", 0x1F: "Lili",
-    0x20: "Dragunov", 0x21: "Eddy", 0x22: "Bob", 0x23: "Zafina",
-    0x24: "Miguel", 0x25: "Leo", 0x26: "Lars", 0x27: "Alisa",
-    0x28: "Jinpachi", 0x29: "True Ogre", 0x2A: "Jun", 0x2B: "Panda",
-    0x2C: "Unknown", 0x2D: "Kunimitsu", 0x2E: "Michelle", 0x2F: "Forest Law",
-    0x30: "Miharu", 0x31: "P-Jack", 0x32: "Sebastian", 0x33: "Michelle",
-    0x34: "Combot", 0x35: "Alex", 0x36: "Ancient Ogre", 0x37: "Violet",
-    0x38: "Dr.", 0x39: "Slim Bob", 0x3A: "Tiger",
-}
+class GameData:
+    """character and rank names as tag2now-BE serves them (GET /game-data).
 
-# rank code -> (display name, tier)
-RANKS = {
-    0: ("Beginner", "숫자단"), 1: ("9th kyu", "숫자단"),
-    2: ("8th kyu", "숫자단"), 3: ("7th kyu", "숫자단"),
-    4: ("6th kyu", "숫자단"), 5: ("5th kyu", "숫자단"),
-    6: ("4th kyu", "숫자단"), 7: ("3rd kyu", "숫자단"),
-    8: ("2nd kyu", "숫자단"), 9: ("1st kyu", "숫자단"),
-    10: ("1st dan", "숫자단"), 11: ("2nd dan", "숫자단"),
-    12: ("3rd dan", "숫자단"), 13: ("Disciple", "액자단"),
-    14: ("Mentor", "액자단"), 15: ("Master", "액자단"),
-    16: ("Grand Master", "액자단"), 17: ("Brawler", "녹단"),
-    18: ("Marauder", "녹단"), 19: ("Fighter", "녹단"),
-    20: ("Berserker", "녹단"), 21: ("Warrior", "노랑단"),
-    22: ("Avenger", "노랑단"), 23: ("Duelist", "노랑단"),
-    24: ("Pugilist", "노랑단"), 25: ("Vanquisher", "주황단"),
-    26: ("Destroyer", "주황단"), 27: ("Conqueror", "주황단"),
-    28: ("Savior", "주황단"), 29: ("Genbu", "빨강단"),
-    30: ("Byakko", "빨강단"), 31: ("Seiryu", "빨강단"),
-    32: ("Suzaku", "빨강단"), 33: ("Fujin", "파랑단"),
-    34: ("Raijin", "파랑단"), 35: ("Yaksa", "파랑단"),
-    36: ("Majin", "파랑단"), 37: ("Toshin", "파랑단"),
-    38: ("Emperor", "보라단"), 39: ("Tekken Lord", "보라단"),
-    40: ("Tekken Emperor", "보라단"), 41: ("Tekken God", "God"),
-    42: ("True Tekken God", "God"),
-}
+    fresh is False when BE could not be reached and these are what was kept from
+    before, or nothing at all; names are then shown but never turned into ids,
+    since an old table could pick the wrong slot."""
+
+    def __init__(self, chars, ranks, fresh, source):
+        self.chars = chars      # id -> name
+        self.ranks = ranks      # code -> (name, tier)
+        self.fresh = fresh
+        self.source = source
+        self.char_by_name = {}
+        for i, name in chars.items():
+            self.char_by_name.setdefault(_norm(name), []).append(i)
+        self.rank_by_name = {_norm(name): code for code, (name, _) in ranks.items()}
+        # tier -> its lowest rank code, to list tiers from the top down
+        self.tier_start = {}
+        for code, (_, tier) in sorted(ranks.items()):
+            self.tier_start.setdefault(tier, code)
+
+
+_game_data = None          # the GameData in use
+_game_data_checked = 0.0   # time.monotonic() of the last attempt to fetch it
+_warned_stale = False
+
+
+def snapshot_path():
+    # next to the audit log: the container and the host CLI both see it at this path
+    return os.path.join(BACKUP_DIR, "game-data.json")
+
+
+def parse_game_data(data, fresh, source):
+    """a GameData from a /game-data answer or a snapshot of one; ValueError unless every
+    character id and rank code is there with a name"""
+    try:
+        chars = {int(c["id"]): c["name"] for c in data["characters"]}
+        ranks = {int(r["id"]): (r["name"], r["tier"]) for r in data["ranks"]}
+    except (KeyError, TypeError, ValueError) as e:
+        raise ValueError(f"malformed game data: {e!r}")
+    if set(chars) != set(range(CHAR_N)) or set(ranks) != set(range(RANK_N)):
+        raise ValueError(f"game data has {len(chars)} characters and {len(ranks)} ranks, "
+                         f"not 0..{CHAR_N - 1} and 0..{RANK_N - 1}")
+    names = list(chars.values()) + [x for pair in ranks.values() for x in pair]
+    if not all(isinstance(x, str) and x.strip() for x in names):
+        raise ValueError("game data has an empty name")
+    return GameData(chars, ranks, fresh, source)
+
+
+def fetch_game_data():
+    """GET /game-data from tag2now-BE, as parsed JSON"""
+    with urllib.request.urlopen(TAG2NOW_API_URL + "/game-data", timeout=GAME_DATA_TIMEOUT) as r:
+        return json.loads(r.read().decode())
+
+
+def _write_snapshot(data):
+    """the last good table, for when BE is down. Off the RPCN host there is no backup
+    directory, and then nothing to keep it in"""
+    path = snapshot_path()
+    if not os.path.isdir(os.path.dirname(path)):
+        return
+    snap = {"saved_at": dt.datetime.now().isoformat(timespec="seconds"),
+            "characters": data["characters"], "ranks": data["ranks"]}
+    tmp = f"{path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(snap, f, ensure_ascii=False)
+        os.replace(tmp, path)   # a reader sees the old file or the new one, never half
+    except OSError as e:
+        print(f"  warn: cannot save {path}: {e.strerror}", file=sys.stderr)
+
+
+def _read_snapshot():
+    try:
+        with open(snapshot_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return parse_game_data(data, False, f"the snapshot of {data.get('saved_at', '?')}")
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def game_data():
+    """the names in use: kept for GAME_DATA_TTL, then fetched again. When BE cannot be
+    reached, what was kept goes on, else the snapshot, else no names at all"""
+    global _game_data, _game_data_checked, _warned_stale
+    now = time.monotonic()
+    wait = GAME_DATA_TTL if _game_data is not None and _game_data.fresh else GAME_DATA_RETRY
+    if _game_data is not None and now - _game_data_checked < wait:
+        return _game_data
+    _game_data_checked = now
+    try:
+        data = fetch_game_data()
+        _game_data = parse_game_data(data, True, TAG2NOW_API_URL)
+        _write_snapshot(data)
+        _warned_stale = False
+        return _game_data
+    except Exception as e:   # unreachable, an HTTP error, or a table parse_game_data refuses
+        reason = e
+    if _game_data is not None:
+        _game_data = GameData(_game_data.chars, _game_data.ranks, False, _game_data.source)
+    else:
+        _game_data = _read_snapshot() or GameData({}, {}, False, "no names")
+    if not _warned_stale:
+        _warned_stale = True
+        print(f"  warn: no character names from {TAG2NOW_API_URL} ({reason}); "
+              f"using {_game_data.source}, and names will not be read as ids", file=sys.stderr)
+    return _game_data
+
+
+def char_name(i):
+    return game_data().chars.get(i, f"Unknown (0x{i:02X})")
 
 
 def rank_name(code):
-    return RANKS.get(code, (f"Unknown ({code})", "Unknown"))
-
-
-# tier -> its lowest rank code, to list tiers from the top down
-_TIER_START = {}
-for _code, (_, _tier) in sorted(RANKS.items()):
-    _TIER_START.setdefault(_tier, _code)
+    return game_data().ranks.get(code, (f"Unknown ({code})", "Unknown"))
 
 
 def _pad(s, width):
@@ -473,7 +541,8 @@ def _move_label(move, tier_width=0):
 def _report_moves(targets, moves):
     """print how many accounts went where, highest reached tier first"""
     print(f"대상자 {targets}명")
-    for move, n in sorted(moves.items(), key=lambda kv: (-_TIER_START[kv[0][0]], -kv[0][2])):
+    tier_start = game_data().tier_start
+    for move, n in sorted(moves.items(), key=lambda kv: (-tier_start.get(kv[0][0], -1), -kv[0][2])):
         print(f"  {n:4d}명 {_move_label(move, 8)}")
 
 
@@ -481,7 +550,14 @@ def _norm(s):
     return "".join(ch for ch in s.lower() if ch.isalnum())
 
 
-_RANK_BY_NAME = {_norm(name): code for code, (name, _) in RANKS.items()}
+def names_to_ids():
+    """the table to turn a name into an id with; only one fetched just now will do"""
+    gd = game_data()
+    if not gd.fresh:
+        raise argparse.ArgumentTypeError(
+            f"names cannot be used while {TAG2NOW_API_URL} is unreachable: an old table "
+            f"could pick the wrong one. use the number")
+    return gd
 
 
 def parse_rank(s):
@@ -490,16 +566,12 @@ def parse_rank(s):
         return int(s)
     except ValueError:
         pass
-    code = _RANK_BY_NAME.get(_norm(s))
+    gd = names_to_ids()
+    code = gd.rank_by_name.get(_norm(s))
     if code is None:
-        names = ", ".join(name for name, _ in RANKS.values())
+        names = ", ".join(name for name, _ in gd.ranks.values())
         raise argparse.ArgumentTypeError(f"unknown rank {s!r}. use a number or one of: {names}")
     return code
-
-
-_CHAR_BY_NAME = {}
-for _i, _name in CHARACTERS.items():
-    _CHAR_BY_NAME.setdefault(_norm(_name), []).append(_i)
 
 
 def parse_char(s):
@@ -510,12 +582,13 @@ def parse_char(s):
         pass
     if _norm(s) == "all":
         return ALL_CHARS
-    ids = _CHAR_BY_NAME.get(_norm(s), [])
+    gd = names_to_ids()
+    ids = gd.char_by_name.get(_norm(s), [])
     if len(ids) > 1:
-        # Michelle, Unknown처럼 같은 이름이 두 칸에 있는 경우
+        # 같은 이름이 두 칸에 있는 경우
         raise argparse.ArgumentTypeError(f"character {s!r} is ambiguous: ids {ids}. use the number")
     if not ids:
-        names = ", ".join(sorted(set(CHARACTERS.values())))
+        names = ", ".join(sorted(set(gd.chars.values())))
         raise argparse.ArgumentTypeError(f"unknown character {s!r}. use 0..{CHAR_N - 1} or one of: {names}")
     return ids[0]
 
@@ -528,7 +601,7 @@ def decode(b, all_chars=False):
         if all_chars or w or l or b[o]:
             s = b[o + SLOT_STREAK]
             name, tier = rank_name(b[o])
-            chars.append({"id": i, "character": CHARACTERS.get(i, f"Unknown (0x{i:02X})"),
+            chars.append({"id": i, "character": char_name(i),
                           "rank": b[o], "rank_name": name, "tier": tier,
                           "points": be16(b, o + SLOT_POINTS),
                           "streak": s - 256 if s > 127 else s, "wins": w, "losses": l})
@@ -741,7 +814,7 @@ def cmd_set_rank(a):
               f"account rank {old_acc} -> {a.rank}")
     else:
         old_rank, old_pts = set_rank_buf(b, a.char, a.rank, a.points)
-        print(f"{a.npid or a.file}  character {a.char} ({CHARACTERS[a.char]}): "
+        print(f"{a.npid or a.file}  character {a.char} ({char_name(a.char)}): "
               f"rank {old_rank} {rank_name(old_rank)[0]} -> {a.rank} {rank_name(a.rank)[0]}"
               + (f", points {old_pts} -> {a.points}" if a.points is not None else ""))
     if a.dry_run:
@@ -994,10 +1067,10 @@ def cmd_floor_redo(a):
               f"  ({tier})")
         if detail:
             for c, now, new in changes:
-                name = "account rank" if c == "account" else f"{c:2d} {CHARACTERS.get(c, c)}"
+                name = "account rank" if c == "account" else f"{c:2d} {char_name(c)}"
                 print(f"      {name:18s} {now} -> {new}")
             if played:
-                print(f"      kept (played since): {[(c, CHARACTERS.get(c, c)) for c in played]}")
+                print(f"      kept (played since): {[(c, char_name(c)) for c in played]}")
         if a.dry_run:
             count["dry_run"] += 1
             moves[(tier, y_old, y_new)] += 1

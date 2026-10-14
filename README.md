@@ -16,6 +16,24 @@ and is verified. The save format is in [docs/](docs/TTT2%20TDT%20세이브%20포
 
 Python 3.9+, standard library only.
 
+## Character and rank names
+
+There is no name table here. Names come from tag2now-BE's `GET /game-data`
+(`TAG2NOW_API_URL`, default `http://127.0.0.1:8000` --- the host CLI's view of
+`be`), so a correction there reaches the saves without a release of this repository.
+
+- **Fetched when first needed**, then kept for five minutes. The CLI is a new
+  process each run, so it asks every run.
+- **Kept as a snapshot** in `game-data.json` next to the audit log, replaced
+  after every good fetch. It is read only while BE cannot be reached, with a
+  warning; with no snapshot either, names show as `Unknown (0x33)`.
+- **A table that is not 59 characters and 43 ranks, all named, is refused** and
+  leaves the snapshot as it was.
+- **Names are turned into ids only from a table fetched just now.** While falling
+  back, `--char paul` or `--rank genbu` is refused: an old table could pick the
+  wrong slot. Numbers always work, and writes never depend on names --- the
+  floor rules are rank codes.
+
 ## Tests
 
 On Linux (writes go through `/tmp` and take `flock` locks), from `script/`:
@@ -114,6 +132,7 @@ answers to `be`'s name for it (used when the first name is unset).
 | `RPCN_STAT_API_KEY` | `RPCN_API_SERVER_KEY` | rpcn.cfg `ApiServerApiKey` |
 | `RPCN_API_URL` | `RPCN_API_SERVER_URL` | `http://host.docker.internal:31315` |
 | `TDT_ADMIN_BIND` | | `0.0.0.0:8000` in the image; leave it |
+| `TAG2NOW_API_URL` | | `http://be:8000`, set by compose; where names come from |
 
 **Release:** push a `v*` tag. `deploy.yml` runs the tests, pushes the image to
 ECR, writes `SAVE_ADMIN_IMAGE_TAG` into the instance's `.env.prod`, and
