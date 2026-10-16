@@ -14,7 +14,7 @@ and is verified. The save format is in [docs/](docs/TTT2%20TDT%20세이브%20포
 | `script/floor_new_users.py` | Starts accounts created after the 2026-09-22 floor pass at the floor |
 | `script/extract_tdt_ranks.py`, `script/find_rank_tdt.py` | Research helpers for the format |
 
-Python 3.9+, standard library only.
+Standard library only.
 
 ## Character and rank names
 
@@ -45,7 +45,7 @@ python3 -m unittest discover -s tests -t .
 From Windows, the same in a container:
 
 ```bash
-MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD:/w:ro" -w /w/script -e PYTHONDONTWRITEBYTECODE=1 python:3.9-slim python -m unittest discover -s tests -t .
+MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD:/w:ro" -w /w/script -e PYTHONDONTWRITEBYTECODE=1 python:3.12-alpine python -m unittest discover -s tests -t .
 ```
 
 ## tdt_admin_server.py

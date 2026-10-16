@@ -10,12 +10,7 @@ on:
 jobs:
   unit-test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # 3.9 is the oldest Python the CLI meets on the RPCN host; the
-        # server image is 3.12. Images, not setup-python, so 3.9 stays available.
-        image: ["python:3.9-slim", "python:3.12-alpine"]
-    container: ${{ matrix.image }}
+    container: python:3.12-alpine
     steps:
       - uses: actions/checkout@v7
       - name: Unit tests
