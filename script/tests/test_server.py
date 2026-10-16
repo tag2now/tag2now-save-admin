@@ -1,5 +1,7 @@
 """tdt_admin_server.py: the HTTP front tag2now-BE calls for the admin page."""
+import os
 import json
+import sqlite3
 import threading
 import urllib.error
 import urllib.parse
@@ -170,6 +172,108 @@ class PlayerSaveRouteTest(ServerCase):
         for name, code in (("nobody", "user_not_found"), ("Bob", "save_not_found")):
             status, out = self.player_save(name)
             self.assertEqual((status, out["error"]), (404, code), name)
+
+
+class TopRanksRouteTest(ServerCase):
+    """every save's two highest characters at once, for the leaderboard"""
+
+    def setUp(self):
+        super().setUp()
+        # what the last call read; every test starts with none
+        p = mock.patch.object(srv, "_top_ranks", {})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def game_save(self, username, buf):
+        """the game saving: a new file under a new data_id, which the row then points at"""
+        con = sqlite3.connect(self.db_path)
+        with con:
+            uid, data_id = con.execute(
+                "SELECT t.owner_id, t.data_id FROM tus_data t JOIN account a ON a.user_id = t.owner_id "
+                "WHERE a.username = ?", (username,)).fetchone()
+            self.orphan_file(data_id + 100, buf)
+            con.execute("UPDATE tus_data SET data_id = ? WHERE owner_id = ?", (data_id + 100, uid))
+        con.close()
+
+    def top_ranks(self, key=KEY):
+        return srv.handle(KEY, "GET", "/players/top-ranks", key)
+
+    def players(self):
+        status, out = self.top_ranks()
+        self.assertEqual(status, 200, out)
+        return {p["npid"]: p for p in out["players"]}
+
+    def ranks(self, player):
+        return [(c["id"], c["rank"], c["points"]) for c in player["chars"]]
+
+    def test_needs_no_admin_but_the_api_key(self):
+        self.add_account("Alice", make_save(chars=[(0, 20, 0, 1, 0)]))
+        self.assertEqual(self.top_ranks()[0], 200)
+        self.verify_admin.assert_not_called()
+        status, out = self.top_ranks(key="wrong")
+        self.assertEqual((status, out["error"]), (403, "invalid_api_key"))
+
+    def test_two_highest_by_rank_then_points(self):
+        self.add_account("Alice", make_save(
+            chars=[(0, 20, 9000, 50, 5), (3, 25, 100, 3, 1), (7, 25, 4000, 9, 2), (9, 12, 0, 1, 0)],
+            account_rank=26))
+        alice = self.players()["Alice"]
+        self.assertEqual(self.ranks(alice), [(7, 25, 4000), (3, 25, 100)])
+        self.assertEqual(alice["account_rank"], 26)
+        self.assertEqual(set(alice), {"npid", "saved_utc", "account_rank", "chars"})
+
+    def test_a_tie_keeps_the_lower_character_id(self):
+        self.add_account("Alice", make_save(chars=[(5, 21, 5000), (2, 21, 5000), (8, 21, 5000)]))
+        self.assertEqual(self.ranks(self.players()["Alice"]), [(2, 21, 5000), (5, 21, 5000)])
+
+    def test_counts_floored_characters_never_played(self):
+        self.add_account("Alice", make_save(every=(14, 5000), chars=[(0, 12, 300, 4, 6)]))
+        self.assertEqual(self.ranks(self.players()["Alice"]), [(1, 14, 5000), (2, 14, 5000)])
+
+    def test_every_account_with_a_save(self):
+        self.add_account("Carol", make_save(chars=[(0, 20, 0, 1, 0)]))
+        self.add_account("Alice", make_save(chars=[(4, 3, 0, 1, 0)]))
+        self.add_account("Bob")
+        self.add_account("Dave", make_save())
+        players = self.players()
+        self.assertEqual(list(players), ["Alice", "Carol", "Dave"])
+        self.assertEqual(self.ranks(players["Alice"]), [(4, 3, 0)])
+        self.assertEqual(players["Dave"]["chars"], [])
+
+    def test_leaves_out_a_save_it_cannot_read(self):
+        self.add_account("Alice", make_save(chars=[(0, 20, 0, 1, 0)]))
+        with open(self.add_account("Bob", make_save()), "wb") as f:
+            f.write(b"short")
+        os.remove(self.add_account("Carol", make_save()))
+        self.assertEqual(list(self.players()), ["Alice"])
+
+    def test_reads_a_save_again_only_when_the_game_saved_it(self):
+        path = self.add_account("Alice", make_save(chars=[(0, 20, 0, 1, 0)]))
+        self.players()
+        # an edit in place keeps the data_id, so it is not read
+        with open(path, "wb") as f:
+            f.write(make_save(chars=[(0, 30, 0, 1, 0)]))
+        self.assertEqual(self.ranks(self.players()["Alice"]), [(0, 20, 0)])
+        self.game_save("Alice", make_save(chars=[(0, 22, 0, 2, 0)]))
+        self.assertEqual(self.ranks(self.players()["Alice"]), [(0, 22, 0)])
+
+    def test_drops_a_save_that_is_gone(self):
+        self.add_account("Alice", make_save(chars=[(0, 20, 0, 1, 0)]))
+        self.add_account("Bob", make_save(chars=[(0, 21, 0, 1, 0)]))
+        self.players()
+        con = sqlite3.connect(self.db_path)
+        with con:
+            con.execute("DELETE FROM tus_data WHERE owner_id = (SELECT user_id FROM account WHERE username = 'Bob')")
+        con.close()
+        self.assertEqual(list(self.players()), ["Alice"])
+
+    def test_logs_an_unreadable_save_once(self):
+        with open(self.add_account("Alice", make_save()), "wb") as f:
+            f.write(b"short")
+        with mock.patch.object(srv.log, "disabled", False), self.assertLogs(srv.log, "WARNING") as logs:
+            self.players()
+            self.players()
+        self.assertEqual(len(logs.records), 1)
 
 
 class SetRankRouteTest(ServerCase):

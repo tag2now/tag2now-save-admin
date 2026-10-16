@@ -227,6 +227,14 @@ def resolve_all(names):
     return out
 
 
+def _saved_at(ts):
+    return dt.datetime.utcfromtimestamp(ts / 1_000_000 - 62135596800)
+
+
+def _save_path(data_id):
+    return os.path.join(TUS_DIR, f"{data_id:020d}.tdt")
+
+
 def lookup(npid):
     """npid -> (user_id, data_id, saved_at, path)"""
     con = db()
@@ -239,8 +247,19 @@ def lookup(npid):
     if not row:
         die(f"no {COM_ID} save for account {npid!r}", "save_not_found")
     uid, data_id, ts = row
-    saved = dt.datetime.utcfromtimestamp(ts / 1_000_000 - 62135596800)
-    return uid, data_id, saved, os.path.join(TUS_DIR, f"{data_id:020d}.tdt")
+    return uid, data_id, _saved_at(ts), _save_path(data_id)
+
+
+def all_saves():
+    """[(npid, data_id, saved_at, path)] of every account's save, in one query rather than a lookup() each"""
+    con = db()
+    rows = con.execute(
+        "SELECT a.username, t.data_id, t.timestamp FROM tus_data t "
+        "JOIN account a ON a.user_id = t.owner_id "
+        "WHERE CAST(t.communication_id AS TEXT) = ? AND t.slot_id = ? ORDER BY a.username",
+        (COM_ID, SLOT)).fetchall()
+    con.close()
+    return [(npid, data_id, _saved_at(ts), _save_path(data_id)) for npid, data_id, ts in rows]
 
 
 def stat_api_key():

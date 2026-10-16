@@ -68,8 +68,13 @@ FE ──▶ tag2now-BE (signed-in admin) ──X-API-Key + admin id/pw──▶
   player's profile, so it needs only `X-API-Key`. It answers ranks and records
   (`npid, saved_utc, account_rank, total, wins, losses, chars`) and nothing
   that locates or fingerprints the file or says whether the player is online.
-  It is the only GET; the `/saves` routes are POST so the admin password never
-  lands in a URL or an access log.
+  `/players/top-ranks` is the same kind of read for the leaderboard: every
+  save's `npid, saved_utc, account_rank` and its two highest characters by rank,
+  then points. A save it cannot read is logged and left out. Only saves whose
+  `data_id` changed since the last call are read again; the game writes every
+  save to a new one, while an admin edit keeps it and so does not show here.
+  These are the only GETs; the `/saves` routes are POST so the admin password
+  never lands in a URL or an access log.
 - **Writes are two steps.** Send the request with `dry_run: true` to get the
   changes and the save's `sha256`, then send it again with
   `expect_sha256` set to that value. A save that changed in between, or an
@@ -80,6 +85,7 @@ FE ──▶ tag2now-BE (signed-in admin) ──X-API-Key + admin id/pw──▶
 | Route | Arguments |
 |-------|------|
 | `GET /player/save` | `?username=` |
+| `GET /players/top-ranks` | — |
 | `POST /saves/show` | `username`, `all_chars?` |
 | `POST /saves/backups` | `username` |
 | `POST /saves/log` | `username?`, `n?` (1..500, default 50) |

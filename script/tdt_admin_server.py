@@ -11,11 +11,15 @@ API on each request and never stored, so a revoked or banned admin loses access
 at once.
 
     GET  /player/save?username=NPID
+    GET  /players/top-ranks
 
 /player/save is the read-only view tag2now-BE shows on any player's profile, so
 it needs only the key and answers only ranks and records: nothing that locates
-the file, fingerprints it, or says whether the player is online. It is the one
-GET: the /saves routes are POST so the admin password never lands in a URL.
+the file, fingerprints it, or says whether the player is online.
+/players/top-ranks is the same kind of read for every save at once: each
+player's two highest ranked characters, for the leaderboard. It reads only the
+saves whose data_id changed since the last call. These are the only
+GETs: the /saves routes are POST so the admin password never lands in a URL.
 
     POST /saves/show                {username, all_chars?}
     POST /saves/backups             {username}
@@ -36,6 +40,7 @@ import re
 import sys
 import json
 import hmac
+import heapq
 import hashlib
 import logging
 import argparse
@@ -179,6 +184,43 @@ def route_player_save(req):
     return {k: d[k] for k in PLAYER_SAVE_FIELDS}
 
 
+def top_two(chars):
+    """the two highest ranked characters, by rank then points; a tie keeps the lower id"""
+    return heapq.nlargest(2, chars, key=lambda c: (c["rank"], c["points"]))
+
+
+# npid -> (data_id, entry or None) as of the last /players/top-ranks. The game writes every
+# save to a new data_id, so a save whose data_id is unchanged is not read again. Admin
+# edits keep the data_id and so do not show, which the leaderboard does not need: it
+# ranks what players earned in game.
+_top_ranks = {}
+
+
+def top_ranks_entry(memo, npid, data_id, saved, path):
+    """(data_id, entry) from memo while the data_id holds, else read from the save.
+    An unreadable save is logged once and kept as None, rather than taking the whole
+    leaderboard down or logging on every request."""
+    if npid in memo and memo[npid][0] == data_id:
+        return memo[npid]
+    try:
+        d = ta.decode(ta.read_save(path))
+    except ta.TdtError as e:
+        log.warning("top ranks: skipped %s: %s", npid, e)
+        return data_id, None
+    return data_id, {"npid": npid, "saved_utc": str(saved), "account_rank": d["account_rank"],
+                     "chars": top_two(d["chars"])}
+
+
+def route_top_ranks(req):
+    """every save's account rank and two highest ranked characters"""
+    global _top_ranks
+    # a fresh dict each time drops deleted accounts; swapping it in whole needs no lock
+    board = {npid: top_ranks_entry(_top_ranks, npid, data_id, saved, path)
+             for npid, data_id, saved, path in ta.all_saves()}
+    _top_ranks = board
+    return {"players": [entry for _, entry in board.values() if entry is not None]}
+
+
 def route_show(req, admin):
     npid = account(req)
     return {**ta.show_save(npid, bool(req.get("all_chars"))), "online": online_state(npid)}
@@ -258,6 +300,7 @@ def as_admin(route):
 
 ROUTES = {
     ("GET", "/player/save"): route_player_save,
+    ("GET", "/players/top-ranks"): route_top_ranks,
     ("POST", "/saves/show"): as_admin(route_show),
     ("POST", "/saves/backups"): as_admin(route_backups),
     ("POST", "/saves/log"): as_admin(route_log),
