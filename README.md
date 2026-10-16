@@ -120,8 +120,10 @@ The server ships as a Docker image and runs as the `save-admin` service of the
 production compose stack, next to `be`. That file, `compose.prod.yml`, is owned
 by tag2now-BE; this repository only releases the image.
 
-- **No published port.** `be` calls `http://save-admin:8000` over the compose
-  network, so nothing outside the instance can reach it.
+- **Loopback port only.** `be` calls `http://save-admin:8000` over the compose
+  network. The port is also published on the instance's loopback,
+  `127.0.0.1:8001`, so a local backend can reach it through an SSH tunnel
+  (`ssh -L 18001:127.0.0.1:8001 ...`); nothing outside the instance can.
 - **RPCN on the host.** RPCN runs with `network_mode: host`, so the container
   reaches its API server as `http://host.docker.internal:31315` (`RPCN_API_URL`).
 - **Same paths as the host.** The RPCN database, the save directory and the
