@@ -117,8 +117,9 @@ Web writes show in the audit log with the admin as `user` and `via: "web"`.
 ### Deployment
 
 The server ships as a Docker image and runs as the `save-admin` service of the
-production compose stack, next to `be`. That file, `compose.prod.yml`, is owned
-by tag2now-BE; this repository only releases the image.
+production compose stack, next to `be`. That file is tag2now-BE's
+`compose.prod.yml`, uploaded as the instance's `compose.yml`; this repository
+only releases the image.
 
 - **Loopback port only.** `be` calls `http://save-admin:8000` over the compose
   network. The port is also published on the instance's loopback,
@@ -131,7 +132,7 @@ by tag2now-BE; this repository only releases the image.
   whatever this server wrote — `floor --redo` reopens backup paths straight
   from the audit log — and a `flock` taken here also holds against the CLI.
 
-The service reads `be`'s `.env.prod` through `env_file`, so each variable also
+The service reads `be`'s `.env` through `env_file`, so each variable also
 answers to `be`'s name for it (used when the first name is unset).
 
 | Variable | `be`'s name | Value |
@@ -143,7 +144,7 @@ answers to `be`'s name for it (used when the first name is unset).
 | `TAG2NOW_API_URL` | | `http://be:8000`, set by compose; where names come from |
 
 **Release:** push a `v*` tag. `deploy.yml` runs the tests, pushes the image to
-ECR, writes `SAVE_ADMIN_IMAGE_TAG` into the instance's `.env.prod`, and
+ECR, writes `SAVE_ADMIN_IMAGE_TAG` into the instance's `.env`, and
 restarts only `save-admin`. It uses the `tag2now` org's SSH and AWS settings,
 like tag2now-BE and tag2now-FE, plus this repository's `ECR_REPOSITORY`
 variable (`tag2now/save-admin`).

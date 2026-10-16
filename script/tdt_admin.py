@@ -59,7 +59,7 @@ BACKUP_DIR = "/home/ec2-user/backup/tdt"
 ARCHIVE_DIR = "/home/ec2-user/backup/tdt_archive"
 AUDIT_LOG = "/home/ec2-user/backup/tdt/audit.jsonl"
 # rpcn-narco's API server; from a container on the host, http://host.docker.internal:31315.
-# RPCN_API_SERVER_URL is be's name for it, so the container can share be's .env.prod
+# RPCN_API_SERVER_URL is be's name for it, so the container can share be's .env
 RPCN_API_URL = (os.environ.get("RPCN_API_URL") or os.environ.get("RPCN_API_SERVER_URL")
                 or "http://127.0.0.1:31315")
 # tag2now-BE, which serves the character and rank names (GET /game-data); from the
@@ -263,7 +263,7 @@ def all_saves():
 
 
 def stat_api_key():
-    """rpcn.cfg의 ApiServerApiKey. RPCN_STAT_API_KEY(be의 .env.prod에서는 RPCN_API_SERVER_KEY)
+    """rpcn.cfg의 ApiServerApiKey. RPCN_STAT_API_KEY(be의 .env에서는 RPCN_API_SERVER_KEY)
     환경변수가 STAT_ENV_FILE보다 우선한다"""
     key = os.environ.get("RPCN_STAT_API_KEY") or os.environ.get("RPCN_API_SERVER_KEY")
     if key:
