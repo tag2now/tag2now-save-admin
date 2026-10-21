@@ -68,10 +68,11 @@ FE ──▶ tag2now-BE (signed-in admin) ──X-API-Key + admin id/pw──▶
   player's profile, so it needs only `X-API-Key`. It answers ranks and records
   (`npid, saved_utc, account_rank, total, wins, losses, chars`) and nothing
   that locates or fingerprints the file or says whether the player is online.
-  `/players/top-ranks` is the same kind of read for the leaderboard: every
-  save's `npid, saved_utc, account_rank` and its two highest characters by rank,
-  then points. A save it cannot read is logged and left out. Only saves whose
-  `data_id` changed since the last call are read again; the game writes every
+  `/players/top-ranks` is the same kind of read for every save at once: each
+  save's `npid, saved_utc, account_rank` and `chars` as `/player/save` gives
+  them. tag2now-BE picks the leaderboard's two best characters from these and
+  finds who plays at each rank. A save it cannot read is logged and left out.
+  Only saves whose `data_id` changed since the last call are read again; the game writes every
   save to a new one, while an admin edit keeps it and so does not show here.
   These are the only GETs; the `/saves` routes are POST so the admin password
   never lands in a URL or an access log.

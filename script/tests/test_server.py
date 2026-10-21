@@ -175,7 +175,7 @@ class PlayerSaveRouteTest(ServerCase):
 
 
 class TopRanksRouteTest(ServerCase):
-    """every save's two highest characters at once, for the leaderboard"""
+    """every save's characters at once, for tag2now-BE's current-rank leaderboard and holders"""
 
     def setUp(self):
         super().setUp()
@@ -213,22 +213,22 @@ class TopRanksRouteTest(ServerCase):
         status, out = self.top_ranks(key="wrong")
         self.assertEqual((status, out["error"]), (403, "invalid_api_key"))
 
-    def test_two_highest_by_rank_then_points(self):
+    def test_every_character_in_slot_order(self):
         self.add_account("Alice", make_save(
             chars=[(0, 20, 9000, 50, 5), (3, 25, 100, 3, 1), (7, 25, 4000, 9, 2), (9, 12, 0, 1, 0)],
             account_rank=26))
         alice = self.players()["Alice"]
-        self.assertEqual(self.ranks(alice), [(7, 25, 4000), (3, 25, 100)])
+        self.assertEqual(self.ranks(alice), [(0, 20, 9000), (3, 25, 100), (7, 25, 4000), (9, 12, 0)])
         self.assertEqual(alice["account_rank"], 26)
         self.assertEqual(set(alice), {"npid", "saved_utc", "account_rank", "chars"})
 
-    def test_a_tie_keeps_the_lower_character_id(self):
-        self.add_account("Alice", make_save(chars=[(5, 21, 5000), (2, 21, 5000), (8, 21, 5000)]))
-        self.assertEqual(self.ranks(self.players()["Alice"]), [(2, 21, 5000), (5, 21, 5000)])
-
-    def test_counts_floored_characters_never_played(self):
+    def test_floored_characters_come_with_a_record_that_tells_them_apart(self):
+        # tag2now-BE ranks them on the leaderboard but counts only played ones as holders
         self.add_account("Alice", make_save(every=(14, 5000), chars=[(0, 12, 300, 4, 6)]))
-        self.assertEqual(self.ranks(self.players()["Alice"]), [(1, 14, 5000), (2, 14, 5000)])
+        chars = self.players()["Alice"]["chars"]
+        self.assertEqual(len(chars), ta.CHAR_N)
+        record = [(c["rank"], c["wins"], c["losses"]) for c in chars[:2]]
+        self.assertEqual(record, [(12, 4, 6), (14, 0, 0)])
 
     def test_every_account_with_a_save(self):
         self.add_account("Carol", make_save(chars=[(0, 20, 0, 1, 0)]))
