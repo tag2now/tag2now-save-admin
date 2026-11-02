@@ -276,6 +276,68 @@ class TopRanksRouteTest(ServerCase):
         self.assertEqual(len(logs.records), 1)
 
 
+class SavesRouteTest(ServerCase):
+    """the saves past a data_id, which tag2now-BE compares to find finished matches"""
+
+    def saves(self, query="", key=KEY):
+        return srv.handle(KEY, "GET", f"/players/saves{query}", key)
+
+    def records(self, query=""):
+        status, out = self.saves(query)
+        self.assertEqual(status, 200, out)
+        return out["saves"]
+
+    def test_needs_no_admin_but_the_api_key(self):
+        self.add_account("Alice", make_save())
+        self.assertEqual(self.saves()[0], 200)
+        self.verify_admin.assert_not_called()
+        status, out = self.saves(key="wrong")
+        self.assertEqual((status, out["error"]), (403, "invalid_api_key"))
+
+    def test_a_record_is_what_the_comparison_needs_and_no_more(self):
+        buf = make_save(chars=[(9, 18, 8199, 368, 300)])
+        buf[ta.OFF_WINS:ta.OFF_WINS + 4] = (368).to_bytes(4, "big")
+        buf[ta.OFF_LOSSES:ta.OFF_LOSSES + 4] = (300).to_bytes(4, "big")
+        buf[ta.OFF_MATCH_PENDING], buf[ta.OFF_OWN_CHAR_1], buf[ta.OFF_OWN_CHAR_2] = 1, 9, 3
+        self.add_account("Alice", buf)
+        record = self.records()[0]
+        self.assertEqual(set(record), {"npid", "data_id", "saved_utc", "wins", "losses", "own_chars", "chars"})
+        self.assertEqual((record["npid"], record["data_id"], record["wins"], record["losses"]),
+                         ("Alice", 1001, 368, 300))
+        self.assertEqual(record["own_chars"], [9, 3])
+        self.assertEqual(record["chars"], [{"id": 9, "wins": 368, "losses": 300}])
+
+    def test_leaves_out_characters_a_floor_ranked_but_nobody_played(self):
+        self.add_account("Alice", make_save(every=(14, 5000), chars=[(0, 12, 300, 4, 6)]))
+        self.assertEqual(self.records()[0]["chars"], [{"id": 0, "wins": 4, "losses": 6}])
+
+    def test_answers_only_saves_past_the_data_id_oldest_first(self):
+        for name in ("Alice", "Bob", "Carol"):
+            self.add_account(name, make_save())
+        self.assertEqual([r["npid"] for r in self.records("?after=1001")], ["Bob", "Carol"])
+
+    def test_limit_keeps_the_oldest(self):
+        for name in ("Alice", "Bob", "Carol"):
+            self.add_account(name, make_save())
+        self.assertEqual([r["npid"] for r in self.records("?limit=2")], ["Alice", "Bob"])
+
+    def test_limit_is_capped(self):
+        with mock.patch.object(ta, "saves_since", return_value=[]) as since:
+            self.records("?after=5&limit=100000")
+        since.assert_called_once_with(5, srv.MAX_SAVES)
+
+    def test_refuses_an_argument_that_is_not_a_number(self):
+        status, out = self.saves("?after=soon")
+        self.assertEqual((status, out["error"]), (400, "invalid_request"))
+
+    def test_leaves_out_a_save_it_cannot_read(self):
+        self.add_account("Alice", make_save())
+        with open(self.add_account("Bob", make_save()), "wb") as f:
+            f.write(b"short")
+        os.remove(self.add_account("Carol", make_save()))
+        self.assertEqual([r["npid"] for r in self.records()], ["Alice"])
+
+
 class SetRankRouteTest(ServerCase):
     def setUp(self):
         super().setUp()

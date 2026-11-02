@@ -74,6 +74,7 @@ STAT_ENV_FILE = "/etc/sysconfig/rpcn-vpn-monitor"
 CHAR_BASE, CHAR_STRIDE, CHAR_N = 0x70, 0x30, 59
 OFF_ACCOUNT_RANK, OFF_ACCOUNT_PROGRESS = 0x18, 0x1B
 OFF_TOTAL, OFF_WINS, OFF_LOSSES = 0x20, 0xCDC, 0xCE0
+OFF_MATCH_PENDING, OFF_OWN_CHAR_1, OFF_OWN_CHAR_2 = 0xC44, 0xC46, 0xC47
 SLOT_RANK, SLOT_POINTS, SLOT_STREAK, SLOT_WIN, SLOT_LOSS = 0x00, 0x02, 0x04, 0x08, 0x0C
 RANK_N = 43
 ALL_CHARS = -1   # set-rank --char all
@@ -258,6 +259,19 @@ def all_saves():
         "JOIN account a ON a.user_id = t.owner_id "
         "WHERE CAST(t.communication_id AS TEXT) = ? AND t.slot_id = ? ORDER BY a.username",
         (COM_ID, SLOT)).fetchall()
+    con.close()
+    return [(npid, data_id, _saved_at(ts), _save_path(data_id)) for npid, data_id, ts in rows]
+
+
+def saves_since(after, limit):
+    """all_saves() narrowed to the first `limit` saves past data_id `after`, oldest first"""
+    con = db()
+    rows = con.execute(
+        "SELECT a.username, t.data_id, t.timestamp FROM tus_data t "
+        "JOIN account a ON a.user_id = t.owner_id "
+        "WHERE CAST(t.communication_id AS TEXT) = ? AND t.slot_id = ? AND t.data_id > ? "
+        "ORDER BY t.data_id LIMIT ?",
+        (COM_ID, SLOT, after, limit)).fetchall()
     con.close()
     return [(npid, data_id, _saved_at(ts), _save_path(data_id)) for npid, data_id, ts in rows]
 
@@ -624,10 +638,14 @@ def decode(b, all_chars=False):
                           "rank": b[o], "rank_name": name, "tier": tier,
                           "points": be16(b, o + SLOT_POINTS),
                           "streak": s - 256 if s > 127 else s, "wins": w, "losses": l})
+    pending = bool(b[OFF_MATCH_PENDING])
     return {
         "account_rank": b[OFF_ACCOUNT_RANK], "progress": b[OFF_ACCOUNT_PROGRESS],
         "total": be32(b, OFF_TOTAL), "wins": be32(b, OFF_WINS), "losses": be32(b, OFF_LOSSES),
-        "checksum": be32(b, 0), "chars": chars,
+        "checksum": be32(b, 0), "chars": chars, "match_pending": pending,
+        # a result save zeroes these, and id 0 is a character, so they mean nothing without a
+        # match pending; the same id twice is a solo entry
+        "own_chars": list(dict.fromkeys((b[OFF_OWN_CHAR_1], b[OFF_OWN_CHAR_2]))) if pending else [],
     }
 
 

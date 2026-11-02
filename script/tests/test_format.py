@@ -52,6 +52,21 @@ class DecodeTest(unittest.TestCase):
         self.assertEqual([c["id"] for c in ta.decode(buf)["chars"]], [4])
         self.assertEqual(len(ta.decode(buf, all_chars=True)["chars"]), ta.CHAR_N)
 
+    def test_a_start_save_names_the_characters_entered(self):
+        buf = make_save()
+        buf[ta.OFF_MATCH_PENDING], buf[ta.OFF_OWN_CHAR_1], buf[ta.OFF_OWN_CHAR_2] = 1, 9, 0
+        d = ta.decode(buf)
+        self.assertEqual((d["match_pending"], d["own_chars"]), (True, [9, 0]))
+
+    def test_a_solo_entry_names_one_character(self):
+        buf = make_save()
+        buf[ta.OFF_MATCH_PENDING], buf[ta.OFF_OWN_CHAR_1], buf[ta.OFF_OWN_CHAR_2] = 1, 9, 9
+        self.assertEqual(ta.decode(buf)["own_chars"], [9])
+
+    def test_a_result_save_names_no_character(self):
+        d = ta.decode(make_save())
+        self.assertEqual((d["match_pending"], d["own_chars"]), (False, []))
+
     def test_unknown_rank_code_is_named_as_such(self):
         self.assertEqual(ta.rank_name(99), ("Unknown (99)", "Unknown"))
 

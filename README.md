@@ -74,6 +74,10 @@ FE ──▶ tag2now-BE (signed-in admin) ──X-API-Key + admin id/pw──▶
   finds who plays at each rank. A save it cannot read is logged and left out.
   Only saves whose `data_id` changed since the last call are read again; the game writes every
   save to a new one, while an admin edit keeps it and so does not show here.
+  `/players/saves` answers the saves past a `data_id`, oldest first, with each
+  one's cumulative record. tag2now-BE compares it with the player's save before
+  to find finished matches, so a call it misses costs nothing: the next save
+  still carries the totals.
   These are the only GETs; the `/saves` routes are POST so the admin password
   never lands in a URL or an access log.
 - **Writes are two steps.** Send the request with `dry_run: true` to get the
@@ -87,6 +91,7 @@ FE ──▶ tag2now-BE (signed-in admin) ──X-API-Key + admin id/pw──▶
 |-------|------|
 | `GET /player/save` | `?username=` |
 | `GET /players/top-ranks` | — |
+| `GET /players/saves` | `?after=` (data_id, default 0), `?limit=` (1..200, default 200) |
 | `POST /saves/show` | `username`, `all_chars?` |
 | `POST /saves/backups` | `username` |
 | `POST /saves/log` | `username?`, `n?` (1..500, default 50) |

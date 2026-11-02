@@ -12,6 +12,7 @@ at once.
 
     GET  /player/save?username=NPID
     GET  /players/top-ranks
+    GET  /players/saves?after=DATA_ID&limit=N
 
 /player/save is the read-only view tag2now-BE shows on any player's profile, so
 it needs only the key and answers only ranks and records: nothing that locates
@@ -19,6 +20,8 @@ the file, fingerprints it, or says whether the player is online.
 /players/top-ranks is the same kind of read for every save at once: each
 player's account rank and characters, for the current-rank leaderboard and its
 holders. It reads only the saves whose data_id changed since the last call.
+/players/saves answers the saves past a data_id with each one's cumulative
+record, which tag2now-BE compares with the save before to find finished matches.
 These are the only GETs: the /saves routes are POST so the admin password never
 lands in a URL.
 
@@ -54,6 +57,7 @@ import tdt_admin as ta
 DEFAULT_BIND = "127.0.0.1:31316"
 MAX_BODY = 64 * 1024
 MAX_LOG = 500
+MAX_SAVES = 200
 
 STATUS = {
     "invalid_request": 400, "ambiguous_user": 400,
@@ -81,6 +85,15 @@ def integer(req, name, default=None):
     if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
         ta.die(f"{name} must be an integer")
     return value
+
+
+def query_integer(req, name, default):
+    """integer() for a query string, where every value arrives as text"""
+    value = req.get(name, default)
+    try:
+        return int(value)
+    except ValueError:
+        ta.die(f"{name} must be an integer")
 
 
 def parsed(parse, value):
@@ -216,6 +229,28 @@ def route_top_ranks(req):
     return {"players": [entry for _, entry in board.values() if entry is not None]}
 
 
+def save_record(npid, data_id, saved, path):
+    """one save's cumulative record, or None for a save that cannot be read"""
+    try:
+        d = ta.decode(ta.read_save(path))
+    except ta.TdtError as e:
+        log.warning("saves: skipped %s: %s", npid, e)
+        return None
+    # a floor gives unplayed characters a rank, which is no record
+    chars = [{"id": c["id"], "wins": c["wins"], "losses": c["losses"]}
+             for c in d["chars"] if c["wins"] or c["losses"]]
+    return {"npid": npid, "data_id": data_id, "saved_utc": str(saved), "wins": d["wins"], "losses": d["losses"],
+            "own_chars": d["own_chars"], "chars": chars}
+
+
+def route_saves(req):
+    """the saves past a data_id, oldest first, each with its cumulative record"""
+    after = query_integer(req, "after", 0)
+    limit = min(max(query_integer(req, "limit", MAX_SAVES), 1), MAX_SAVES)
+    records = (save_record(*save) for save in ta.saves_since(after, limit))
+    return {"saves": [record for record in records if record is not None]}
+
+
 def route_show(req, admin):
     npid = account(req)
     return {**ta.show_save(npid, bool(req.get("all_chars"))), "online": online_state(npid)}
@@ -296,6 +331,7 @@ def as_admin(route):
 ROUTES = {
     ("GET", "/player/save"): route_player_save,
     ("GET", "/players/top-ranks"): route_top_ranks,
+    ("GET", "/players/saves"): route_saves,
     ("POST", "/saves/show"): as_admin(route_show),
     ("POST", "/saves/backups"): as_admin(route_backups),
     ("POST", "/saves/log"): as_admin(route_log),

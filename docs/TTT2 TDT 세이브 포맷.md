@@ -248,7 +248,7 @@ RPCN 운영 서버의 세이브 **57,715개 / 263명**이 원본이다. 파일�
 | 대전 시작 | `match_pending` = 1, `own_character_1/2`와 계급 스냅샷 기록, `incomplete_history = ((H << 1) \| 1) & 0x3FFFFFFF` |
 | 결과 저장 | 승패 카운터 증가, `match_pending` = 0, `own_character_1/2`를 0으로 지움, `incomplete_history &= ~1` |
 
-따라서 **결과 파일만 보고 `own_character_*`를 "직전 출전 캐릭터"로 읽으면 틀린다.** 비활성 상태의 ID 0을 Paul 선택으로 읽어서도 안 된다.
+따라서 **결과 파일만 보고 `own_character_*`를 "직전 출전 캐릭터"로 읽으면 틀린다.** 비활성 상태의 ID 0을 Paul 선택으로 읽어서도 안 된다. `tdt_admin.py`의 `decode()`가 `match_pending`일 때만 `own_chars`를 주는 이유다.
 
 시작 저장의 `{0xC46, 0xC47}` 집합은 다음 결과에서 전적이 증가한 캐릭터 집합과 **26,868/26,876 = 99.97%** 일치한다.
 
