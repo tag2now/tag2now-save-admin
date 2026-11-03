@@ -294,7 +294,7 @@ class SavesRouteTest(ServerCase):
         status, out = self.saves(key="wrong")
         self.assertEqual((status, out["error"]), (403, "invalid_api_key"))
 
-    def test_a_record_is_what_the_comparison_needs_and_no_more(self):
+    def test_a_record_is_what_a_match_record_needs_and_no_more(self):
         buf = make_save(chars=[(9, 18, 8199, 368, 300)])
         buf[ta.OFF_WINS:ta.OFF_WINS + 4] = (368).to_bytes(4, "big")
         buf[ta.OFF_LOSSES:ta.OFF_LOSSES + 4] = (300).to_bytes(4, "big")
@@ -305,11 +305,11 @@ class SavesRouteTest(ServerCase):
         self.assertEqual((record["npid"], record["data_id"], record["wins"], record["losses"]),
                          ("Alice", 1001, 368, 300))
         self.assertEqual(record["own_chars"], [9, 3])
-        self.assertEqual(record["chars"], [{"id": 9, "wins": 368, "losses": 300}])
+        self.assertEqual(record["chars"], [{"id": 9, "rank": 18, "wins": 368, "losses": 300}])
 
     def test_leaves_out_characters_a_floor_ranked_but_nobody_played(self):
         self.add_account("Alice", make_save(every=(14, 5000), chars=[(0, 12, 300, 4, 6)]))
-        self.assertEqual(self.records()[0]["chars"], [{"id": 0, "wins": 4, "losses": 6}])
+        self.assertEqual(self.records()[0]["chars"], [{"id": 0, "rank": 12, "wins": 4, "losses": 6}])
 
     def test_answers_only_saves_past_the_data_id_oldest_first(self):
         for name in ("Alice", "Bob", "Carol"):

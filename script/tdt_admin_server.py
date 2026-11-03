@@ -21,7 +21,8 @@ the file, fingerprints it, or says whether the player is online.
 player's account rank and characters, for the current-rank leaderboard and its
 holders. It reads only the saves whose data_id changed since the last call.
 /players/saves answers the saves past a data_id with each one's cumulative
-record, which tag2now-BE compares with the save before to find finished matches.
+record, which tag2now-BE compares with the save before to find finished matches,
+and each played character's rank, which it records them at.
 These are the only GETs: the /saves routes are POST so the admin password never
 lands in a URL.
 
@@ -230,14 +231,14 @@ def route_top_ranks(req):
 
 
 def save_record(npid, data_id, saved, path):
-    """one save's cumulative record, or None for a save that cannot be read"""
+    """one save's cumulative record and its played characters' ranks, or None for a save that cannot be read"""
     try:
         d = ta.decode(ta.read_save(path))
     except ta.TdtError as e:
         log.warning("saves: skipped %s: %s", npid, e)
         return None
     # a floor gives unplayed characters a rank, which is no record
-    chars = [{"id": c["id"], "wins": c["wins"], "losses": c["losses"]}
+    chars = [{"id": c["id"], "rank": c["rank"], "wins": c["wins"], "losses": c["losses"]}
              for c in d["chars"] if c["wins"] or c["losses"]]
     return {"npid": npid, "data_id": data_id, "saved_utc": str(saved), "wins": d["wins"], "losses": d["losses"],
             "own_chars": d["own_chars"], "chars": chars}

@@ -77,7 +77,8 @@ FE ──▶ tag2now-BE (signed-in admin) ──X-API-Key + admin id/pw──▶
   `/players/saves` answers the saves past a `data_id`, oldest first, with each
   one's cumulative record. tag2now-BE compares it with the player's save before
   to find finished matches, so a call it misses costs nothing: the next save
-  still carries the totals.
+  still carries the totals. Each played character also carries its rank, which
+  tag2now-BE records as the rank that character went into its next match at.
   These are the only GETs; the `/saves` routes are POST so the admin password
   never lands in a URL or an access log.
 - **Writes are two steps.** Send the request with `dry_run: true` to get the
