@@ -146,7 +146,7 @@ def verify_admin(username, password):
 def online_state(npid):
     """True or False, None when the API server cannot tell"""
     who = ta.online()
-    return None if who is None else npid in who
+    return npid in who if who is not None else None
 
 
 def live(npid):
