@@ -224,7 +224,7 @@ class TopRanksRouteTest(ServerCase):
 
     def test_floored_characters_come_with_a_record_that_tells_them_apart(self):
         # tag2now-BE ranks them on the leaderboard but counts only played ones as holders
-        self.add_account("Alice", make_save(every=(14, 5000), chars=[(0, 12, 300, 4, 6)]))
+        self.add_account("Alice", make_save(every=(14, ta.FLOOR_POINTS[14]), chars=[(0, 12, 300, 4, 6)]))
         chars = self.players()["Alice"]["chars"]
         self.assertEqual(len(chars), ta.CHAR_N)
         record = [(c["rank"], c["wins"], c["losses"]) for c in chars[:2]]
@@ -308,7 +308,7 @@ class SavesRouteTest(ServerCase):
         self.assertEqual(record["chars"], [{"id": 9, "rank": 18, "wins": 368, "losses": 300}])
 
     def test_leaves_out_characters_a_floor_ranked_but_nobody_played(self):
-        self.add_account("Alice", make_save(every=(14, 5000), chars=[(0, 12, 300, 4, 6)]))
+        self.add_account("Alice", make_save(every=(14, ta.FLOOR_POINTS[14]), chars=[(0, 12, 300, 4, 6)]))
         self.assertEqual(self.records()[0]["chars"], [{"id": 0, "rank": 12, "wins": 4, "losses": 6}])
 
     def test_answers_only_saves_past_the_data_id_oldest_first(self):
@@ -393,7 +393,7 @@ class SetRankRouteTest(ServerCase):
         out = self.ok("/saves/set-rank", username="Alice", char="all", rank=12, expect_sha256=self.sha)
         after = read(self.path)
         self.assertEqual((len(out["changes"]["chars"]), out["changes"]["account_rank"]), (59, {"before": 20, "after": 12}))
-        self.assertEqual({char_state(after, i) for i in range(ta.CHAR_N)}, {(12, 5000, 0)})
+        self.assertEqual({char_state(after, i) for i in range(ta.CHAR_N)}, {(12, ta.FLOOR_POINTS[12], 0)})
         self.assertEqual(self.audit_records()[0]["char"], "all")
 
     def test_bad_arguments(self):
@@ -423,19 +423,19 @@ class FloorRouteTest(ServerCase):
         self.assertEqual(len(preview["changes"]["chars"]), 58)
         out = self.ok("/saves/floor", username="Alice", expect_sha256=preview["sha256"])
         self.assertTrue(out["applied"])
-        self.assertEqual(char_state(read(path), 1), (19, 5000, 0))
+        self.assertEqual(char_state(read(path), 1), (19, ta.FLOOR_POINTS[19], 0))
         self.assertEqual(self.audit_records()[0]["floor"], 19)
 
     def test_demotions_after_an_earlier_floor_need_refloor(self):
         chars = [(0, 30, 100), (1, 17, 0), (2, 17, 0)]
-        original = bytes(make_save(every=(19, 5000), chars=chars, account_rank=30))
+        original = bytes(make_save(every=(19, ta.FLOOR_POINTS[19]), chars=chars, account_rank=30))
         path = self.add_account("Alice", original)
         sha = srv.sha256(original)
         self.assertTrue(self.ok("/saves/floor", username="Alice", dry_run=True)["floor"]["likely_demoted"])
         self.fails("/saves/floor", 409, "likely_demoted", username="Alice", expect_sha256=sha)
         self.assertEqual(read(path), original)
         self.ok("/saves/floor", username="Alice", refloor=True, expect_sha256=sha)
-        self.assertEqual(char_state(read(path), 1), (19, 5000, 0))
+        self.assertEqual(char_state(read(path), 1), (19, ta.FLOOR_POINTS[19], 0))
 
     def test_explicit_rank_must_have_floor_points(self):
         self.add_account("Alice", make_save())

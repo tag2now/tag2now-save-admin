@@ -88,14 +88,14 @@ TIERS = [10, 13, 17, 21, 25, 29, 33, 38, 41]
 FLOOR_BY_TIER = {10: 10, 13: 10, 17: 12, 21: 14, 25: 17, 29: 19, 33: 21, 38: 25, 41: 29}
 
 # rank points set with a floor. kyu ranks (1..9) sit at 200 * rank; 1st dan (10) cannot be
-# demoted. above that a loss is -2000 and the gauge going below 0 demotes, so 5000 gives
-# 3000 after one loss, 1000 (next loss demotes) after two, and demotion on the third.
+# demoted. above that a loss is -2000 and the gauge going below 0 demotes, so every 2000
+# floor points is one more loss a raised character survives.
 FLOOR_POINTS = {r: 200 * r for r in range(1, 10)}
 FLOOR_POINTS[10] = 0
 # 올린 캐릭터가 몇 판 만에 다시 강등되지 않도록 넉넉한 점수를 준다
 ORANGE_TIER = 25  # Vanquisher, 주황단 시작
-FLOOR_POINTS.update({r: 5000 for r in range(11, ORANGE_TIER)})
-FLOOR_POINTS.update({r: 7000 for r in range(ORANGE_TIER, 43)})
+FLOOR_POINTS.update({r: 8000 for r in range(11, ORANGE_TIER)})
+FLOOR_POINTS.update({r: 10000 for r in range(ORANGE_TIER, 43)})
 
 # floor는 59칸을 한 번에 올리므로, 이미 floor된 계정에서 floor 아래에 남는 것은 게임으로
 # 강등된 몇 칸뿐이다. 이 이하면 강등을 되돌리는 것으로 보고 건너뛴다 (--refloor로 무시)

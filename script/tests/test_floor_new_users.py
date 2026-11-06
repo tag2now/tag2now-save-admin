@@ -36,7 +36,7 @@ class FloorNewUsersTest(RpcnDataCase):
     def test_floors_a_new_user_and_marks_it_done(self):
         path = self.add_account("New", self.unfloored, created=AFTER)
         self.run_once()
-        self.assertEqual(char_state(read(path), 1), (19, 5000, 0))
+        self.assertEqual(char_state(read(path), 1), (19, ta.FLOOR_POINTS[19], 0))
         self.assertEqual(self.state["done"]["New"]["status"], "applied")
         self.assertEqual(fn.load_state()["done"].keys(), {"New"})
 

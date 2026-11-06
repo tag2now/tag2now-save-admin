@@ -78,7 +78,7 @@ class FloorRuleTest(unittest.TestCase):
         self.assertEqual({m: ta.floor_for(m) for m in expected}, expected)
 
     def test_floor_points(self):
-        expected = {1: 200, 5: 1000, 9: 1800, 10: 0, 11: 5000, 24: 5000, 25: 7000, 42: 7000}
+        expected = {1: 200, 5: 1000, 9: 1800, 10: 0, 11: 8000, 24: 8000, 25: 10000, 42: 10000}
         self.assertEqual({r: ta.FLOOR_POINTS[r] for r in expected}, expected)
 
     def test_reached_counts_the_account_rank(self):
@@ -97,13 +97,13 @@ class FloorBufTest(unittest.TestCase):
         self.assertEqual(ta.floor_buf(buf), (30, 19, 58))   # 57 characters and the account rank
         self.assertEqual(char_state(buf, 0), (30, 100, 0))
         self.assertEqual(char_state(buf, 1), (25, 300, 0))
-        self.assertEqual(char_state(buf, 2), (19, 5000, 0))
+        self.assertEqual(char_state(buf, 2), (19, ta.FLOOR_POINTS[19], 0))
         self.assertEqual(buf[ta.OFF_ACCOUNT_RANK], 19)
 
     def test_explicit_rank_overrides_the_rule(self):
         buf = make_save(chars=[(0, 30)], account_rank=30)
         self.assertEqual(ta.floor_buf(buf, 12), (30, 12, 58))
-        self.assertEqual(char_state(buf, 58), (12, 5000, 0))
+        self.assertEqual(char_state(buf, 58), (12, ta.FLOOR_POINTS[12], 0))
 
     def test_leaves_a_floored_save_alone(self):
         buf = make_save(every=(10, 0), account_rank=10)
@@ -114,25 +114,25 @@ class FloorBufTest(unittest.TestCase):
     def test_keeps_the_streak_of_a_raised_character(self):
         buf = make_save(chars=[(0, 30), (1, 5, 0, 2, 9, -4)], account_rank=30)
         ta.floor_buf(buf)
-        self.assertEqual(char_state(buf, 1), (19, 5000, 0xFC))
+        self.assertEqual(char_state(buf, 1), (19, ta.FLOOR_POINTS[19], 0xFC))
 
     def test_fix_floor_points_tops_up_characters_at_the_floor(self):
-        buf = make_save(every=(19, 5000), chars=[(0, 30, 10), (5, 19, 100), (6, 20, 100)], account_rank=30)
+        buf = make_save(every=(19, ta.FLOOR_POINTS[19]), chars=[(0, 30, 10), (5, 19, 100), (6, 20, 100)], account_rank=30)
         self.assertEqual(ta.fix_floor_points(buf, 19), 1)
-        self.assertEqual(char_state(buf, 5), (19, 5000, 0))
+        self.assertEqual(char_state(buf, 5), (19, ta.FLOOR_POINTS[19], 0))
         self.assertEqual(char_state(buf, 6), (20, 100, 0))
 
 
 class SetAllBufTest(unittest.TestCase):
     def test_sets_every_character_and_the_account_rank(self):
-        buf = make_save(chars=[(0, 30, 100, 1, 1, 3), (1, 12, 5000)], account_rank=30)
+        buf = make_save(chars=[(0, 30, 100, 1, 1, 3), (1, 12, ta.FLOOR_POINTS[12])], account_rank=30)
         self.assertEqual(ta.set_all_buf(buf, 12), 58)   # character 1 is already there
-        self.assertEqual({char_state(buf, i) for i in range(ta.CHAR_N)}, {(12, 5000, 0)})
+        self.assertEqual({char_state(buf, i) for i in range(ta.CHAR_N)}, {(12, ta.FLOOR_POINTS[12], 0)})
         self.assertEqual(buf[ta.OFF_ACCOUNT_RANK], 12)
 
 
 class RedoBufTest(unittest.TestCase):
-    """an earlier floor to 17 (3000 points), redone with the current rule (19, 5000 points)"""
+    """an earlier floor to 17 (3000 points), redone with the current rule (19, at its floor points)"""
 
     def setUp(self):
         self.pre = make_save(chars=[(0, 30, 100, 5, 5)], account_rank=30)
@@ -143,8 +143,8 @@ class RedoBufTest(unittest.TestCase):
     def test_moves_untouched_characters_to_the_current_floor(self):
         y_new, changes, played = ta.redo_buf(self.pre, self.cur, 17)
         self.assertEqual((y_new, len(changes), played), (19, 58, []))
-        self.assertEqual(changes[0], (1, (17, 3000, 0), (19, 5000, 0)))
-        self.assertEqual(char_state(self.cur, 58), (19, 5000, 0))
+        self.assertEqual(changes[0], (1, (17, 3000, 0), (19, ta.FLOOR_POINTS[19], 0)))
+        self.assertEqual(char_state(self.cur, 58), (19, ta.FLOOR_POINTS[19], 0))
         self.assertEqual(char_state(self.cur, 0), (30, 100, 0))
 
     def test_keeps_characters_played_since(self):
