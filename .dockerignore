@@ -1,3 +1,6 @@
 *
 !script/tdt_admin.py
 !script/tdt_admin_server.py
+!script/floor_scheduler.py
+!script/floor_new_users.py
+!script/template_new_user.tdt

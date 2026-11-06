@@ -2,7 +2,8 @@
 """HTTP front for tdt_admin, for the tag2now admin page.
 
 Serves a few of tdt_admin's commands as JSON, from a container on the RPCN host
-(see Dockerfile). tag2now-BE is the only caller.
+(see Dockerfile). tag2now-BE is the only caller. The process also runs the
+scheduled floors (floor_scheduler.py).
 
 Every request carries X-API-Key: $SAVE_ADMIN_KEY. The /saves routes forward
 an admin's request, and their body also carries the admin's RPCN username and
@@ -54,6 +55,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import tdt_admin as ta
+import floor_scheduler
 
 DEFAULT_BIND = "127.0.0.1:31316"
 MAX_BODY = 64 * 1024
@@ -433,6 +435,7 @@ def main():
         sys.exit("error: SAVE_ADMIN_KEY is not set; refusing to serve without a key")
     server = serve(a.bind, api_key)
     log.info("listening on %s, RPCN API at %s", a.bind, ta.RPCN_API_URL)
+    floor_scheduler.start()
     server.serve_forever()
 
 

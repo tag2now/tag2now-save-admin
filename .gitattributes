@@ -1,3 +1,5 @@
 # everything here runs on the Linux host; CRLF breaks the shebang line
 *.py text eol=lf
 *.sh text eol=lf
+# a save file; a line-ending conversion would corrupt it
+*.tdt binary

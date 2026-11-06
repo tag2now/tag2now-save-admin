@@ -21,8 +21,7 @@ class FloorNewUsersTest(RpcnDataCase):
         self.template = os.path.join(self.root, "template_new_user.tdt")
         with open(self.template, "wb") as f:
             f.write(bytes(make_save()))
-        p = mock.patch.multiple(fn, DB_PATH=self.db_path, BACKUP_DIR=self.backup_dir,
-                                STATE=self.state_path, TEMPLATE=self.template)
+        p = mock.patch.multiple(fn, STATE=self.state_path, TEMPLATE=self.template)
         p.start()
         self.addCleanup(p.stop)
         self.state = {"cutoff": fn.CUTOFF.isoformat(), "done": {}}

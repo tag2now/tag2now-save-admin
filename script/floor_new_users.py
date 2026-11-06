@@ -28,8 +28,9 @@ as `tdt_admin.py floor <npid>` (backup, reseal, verify, audit).
     floor_new_users.py --dry-run   one run without writing anything
     floor_new_users.py --status    show new users and whether they are done
 
-The done list (floor_new_users.json) and the template save
-(template_new_user.tdt) live next to this script.
+The done list (floor_new_users.json) lives beside the audit log, where the
+save-admin container sees the same file as the host. The template save
+(template_new_user.tdt) ships next to this script.
 """
 import os
 import sys
@@ -39,12 +40,11 @@ import sqlite3
 import argparse
 import datetime as dt
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = "/home/ec2-user/rpcn-data/db/rpcn.db"
-BACKUP_DIR = "/home/ec2-user/backup/tdt"
-STATE = os.path.join(HERE, "floor_new_users.json")
+import tdt_admin as ta
+
+STATE = os.path.join(ta.BACKUP_DIR, "floor_new_users.json")
 # a fresh save the game made itself (0 matches, rank 0); floored before use
-TEMPLATE = os.path.join(HERE, "template_new_user.tdt")
+TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template_new_user.tdt")
 COM_ID = "NPWR02973_00"
 SLOT = 1
 
@@ -77,7 +77,7 @@ def save_state(st):
 
 def new_users():
     """[(npid, user_id, created, has_save)] for accounts created at or after CUTOFF"""
-    con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=2)
+    con = sqlite3.connect(f"file:{ta.DB_PATH}?mode=ro", uri=True, timeout=2)
     rows = con.execute(
         "SELECT a.username, a.user_id, ts.creation, t.data_id IS NOT NULL FROM account a "
         "JOIN account_timestamp ts ON ts.user_id = a.user_id "
@@ -92,19 +92,19 @@ def new_users():
 
 def already_floored(npid):
     """a pre-floor backup means the batch or a manual `floor` already raised this account"""
-    d = os.path.join(BACKUP_DIR, npid)
+    d = os.path.join(ta.BACKUP_DIR, npid)
     return os.path.isdir(d) and any(f.startswith("pre-floor-") for f in os.listdir(d))
 
 
 # ----------------------------------------------------------------- seed
-def floored_template(ta):
+def floored_template():
     b = ta.read_save(TEMPLATE)
     _, y, _ = ta.floor_buf(b)
     ta.reseal(b)
     return b, y
 
 
-def free_data_id(ta, con):
+def free_data_id(con):
     """an unused id below every file on disk; RPCN's dispenser never hands those out again"""
     used = {r[0] for r in con.execute("SELECT data_id FROM tus_data")}
     used |= {r[0] for r in con.execute("SELECT data_id FROM tus_data_vuser")}
@@ -115,11 +115,11 @@ def free_data_id(ta, con):
     ta.die("no free data_id")
 
 
-def seed(ta, npid, uid, buf, floor):
+def seed(npid, uid, buf, floor):
     """write buf as npid's first TTT2 save; False if the game created one first"""
-    con = sqlite3.connect(DB_PATH, timeout=10)
+    con = sqlite3.connect(ta.DB_PATH, timeout=10)
     try:
-        data_id = free_data_id(ta, con)
+        data_id = free_data_id(con)
         path = os.path.join(ta.TUS_DIR, f"{data_id:020d}.tdt")
         with open(path, "wb") as f:
             f.write(bytes(buf))
@@ -143,12 +143,23 @@ def seed(ta, npid, uid, buf, floor):
 
 
 # ------------------------------------------------------------------ run
+def loaded_state():
+    """the done list; TdtError when --init never created it"""
+    st = load_state()
+    if st is None:
+        ta.die(f"{STATE} missing; run floor_new_users.py --init first")
+    return st
+
+
+def run(dry_run=False):
+    """one run over the done list"""
+    run_once(loaded_state(), dry_run)
+
+
 def run_once(st, dry_run):
     todo = [u for u in new_users() if u[0] not in st["done"]]
     if not todo:
         return
-
-    import tdt_admin as ta
 
     # accounts that have never saved: seed a floored save before the game makes one
     template = None
@@ -156,10 +167,10 @@ def run_once(st, dry_run):
         if has_save:
             continue
         if template is None:
-            template = floored_template(ta)
+            template = floored_template()
         if dry_run:
             log(f"{npid} (created {created}): would seed a floor {template[1]} save")
-        elif seed(ta, npid, uid, *template):
+        elif seed(npid, uid, *template):
             log(f"{npid} (created {created}): seeded a floor {template[1]} save")
         else:
             log(f"{npid} (created {created}): the game saved first, floored on a later run")
@@ -215,19 +226,14 @@ def main():
 
     if a.init:
         return cmd_init()
-    st = load_state()
-    if st is None:
-        sys.exit(f"error: {STATE} missing; run with --init first")
-    if a.status:
-        return cmd_status(st)
-    import tdt_admin as ta
     try:
-        run_once(st, a.dry_run)
+        if a.status:
+            return cmd_status(loaded_state())
+        run(a.dry_run)
     except ta.TdtError as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, HERE)
     main()

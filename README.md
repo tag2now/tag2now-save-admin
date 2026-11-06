@@ -10,7 +10,8 @@ and is verified. The save format is in [docs/](docs/TTT2%20TDT%20세이브%20포
 | Script | What it is |
 |--------|------------|
 | `script/tdt_admin.py` | The tool: `show`, `backup`, `restore`, `set-rank`, `floor`, `log`, `gc`, ... (`--help`) |
-| `script/tdt_admin_server.py` | HTTP API over part of it, for the admin page in tag2now-BE |
+| `script/tdt_admin_server.py` | HTTP API over part of it, for the admin page in tag2now-BE; also runs the scheduled floors |
+| `script/floor_scheduler.py` | When the server runs the floors |
 | `script/floor_new_users.py` | Starts accounts created after the 2026-09-22 floor pass at the floor |
 | `script/extract_tdt_ranks.py`, `script/find_rank_tdt.py` | Research helpers for the format |
 
@@ -86,7 +87,8 @@ FE ──▶ tag2now-BE (signed-in admin) ──X-API-Key + admin id/pw──▶
   `expect_sha256` set to that value. A save that changed in between, or an
   account that is online, is refused (409) and nothing is written.
 - **Not served:** `--force`, `floor --all`, `floor --redo`, `gc`, and anything
-  that takes a file path. Those stay on the command line.
+  that takes a file path. Those stay on the command line; `floor --all` also
+  runs on a schedule, below.
 
 | Route | Arguments |
 |-------|------|
@@ -121,6 +123,19 @@ Errors are `{"error": "<code>", "message": "..."}`:
 
 Web writes show in the audit log with the admin as `user` and `via: "web"`.
 
+### Scheduled floors
+
+The server process runs `floor_new_users.py` and `floor --all` itself, so the
+schedule ships with the code instead of living in the host's crontab. When
+each runs, and how a missed day is caught up, is in `floor_scheduler.py`.
+
+- **Before the first deploy:** `floor_new_users.py`'s done list must already
+  be beside the audit log --- copied from the host, or made with `--init`.
+  Without it the new-users floor logs an error on every run.
+- **In the audit log** these floors show as user `save-admin`.
+- **`FLOOR_SCHEDULER=off`** turns both off. tag2now-BE's match-records replay
+  sets it: the replay checks the saves it wrote, and a floor would change them.
+
 ### Deployment
 
 The server ships as a Docker image and runs as the `save-admin` service of the
@@ -149,6 +164,7 @@ answers to `be`'s name for it (used when the first name is unset).
 | `RPCN_API_URL` | `RPCN_API_SERVER_URL` | `http://host.docker.internal:31315` |
 | `TDT_ADMIN_BIND` | | `0.0.0.0:8000` in the image; leave it |
 | `TAG2NOW_API_URL` | | `http://be:8000`, set by compose; where names come from |
+| `FLOOR_SCHEDULER` | | Unset in production; `off` stops the scheduled floors |
 
 **Release:** push a `v*` tag. `deploy.yml` runs the tests, pushes the image to
 ECR, writes `SAVE_ADMIN_IMAGE_TAG` into the instance's `.env`, and

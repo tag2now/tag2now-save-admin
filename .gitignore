@@ -1,6 +1,5 @@
 __pycache__/
 *.pyc
 
-# runtime state kept next to floor_new_users.py on the host
+# runtime state, which lives beside the audit log; a stray copy here is never committed
 script/floor_new_users.json
-script/template_new_user.tdt
