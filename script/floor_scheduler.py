@@ -1,7 +1,7 @@
 """The two floors on a schedule, run inside tdt_admin_server.
 
 Every minute, floor_new_users seeds and floors new accounts. Once a day, from
-DAILY_AT UTC, `floor --all` raises every save to its floor. The time it last
+DAILY_AT, `floor --all` raises every save to its floor. The time it last
 ran is kept beside the audit log, so a restart catches up on a missed day
 instead of skipping it. FLOOR_SCHEDULER=off turns both off.
 """
@@ -16,7 +16,8 @@ import tdt_admin as ta
 import floor_new_users as fn
 
 TICK = 60
-DAILY_AT = dt.time(6, 10)
+# just after the host's 06:00 KST TUS backup, so the day's backup predates the floor
+DAILY_AT = dt.time(6, 10, tzinfo=fn.KST)
 LAST_DAILY = os.path.join(ta.BACKUP_DIR, "floor_daily.json")
 
 log = logging.getLogger("floor-scheduler")
@@ -24,7 +25,7 @@ log = logging.getLogger("floor-scheduler")
 
 def daily_due(now, last_run):
     """whether floor --all is due at now, having last run at last_run (None: never)"""
-    slot = dt.datetime.combine(now.date(), DAILY_AT, tzinfo=dt.timezone.utc)
+    slot = dt.datetime.combine(now.astimezone(DAILY_AT.tzinfo).date(), DAILY_AT)
     if now < slot:
         slot -= dt.timedelta(days=1)
     return last_run is None or last_run < slot
@@ -73,7 +74,7 @@ def start():
         return None
     thread = threading.Thread(target=_loop, name="floor-scheduler", daemon=True)
     thread.start()
-    log.info("floor scheduler on: new users every %ds, all saves daily from %s UTC", TICK, DAILY_AT)
+    log.info("floor scheduler on: new users every %ds, all saves daily from %s", TICK, DAILY_AT)
     return thread
 
 

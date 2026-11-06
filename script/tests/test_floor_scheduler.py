@@ -10,14 +10,17 @@ import floor_scheduler as fs
 import floor_new_users as fn
 from tests.support import RpcnDataCase, char_state, make_save, read
 
-UTC = dt.timezone.utc
-
-
 def at(day, hour, minute=0):
-    return dt.datetime(2026, 11, day, hour, minute, tzinfo=UTC)
+    """a time in KST, the zone the daily floor is scheduled in"""
+    return dt.datetime(2026, 11, day, hour, minute, tzinfo=fn.KST)
 
 
 class DailyDueTest(unittest.TestCase):
+    def test_is_due_at_0610_kst_whatever_zone_now_is_in(self):
+        utc = dt.timezone.utc
+        self.assertTrue(fs.daily_due(dt.datetime(2026, 11, 5, 21, 10, tzinfo=utc), at(5, 6, 10)))
+        self.assertFalse(fs.daily_due(dt.datetime(2026, 11, 6, 6, 10, tzinfo=utc), at(6, 6, 10)))
+
     def test_due_when_it_never_ran(self):
         self.assertTrue(fs.daily_due(at(6, 3), None))
 
