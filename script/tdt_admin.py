@@ -1146,51 +1146,54 @@ def cmd_floor(a):
     if a.file:
         return _floor_file(a)
 
-    names = a.npid
-    if a.all:
-        con = db()
-        names = [r[0] for r in con.execute(
-            "SELECT a.username FROM tus_data t JOIN account a ON a.user_id=t.owner_id "
-            "WHERE CAST(t.communication_id AS TEXT)=? AND t.slot_id=? ORDER BY a.username",
-            (COM_ID, SLOT))]
-        con.close()
+    names = save_owners() if a.all else a.npid
     if not names:
         die("give one or more npids, or --all")
+    floor_accounts(names, a.rank, a.label, a.dry_run, a.force, a.fix_points, a.refloor)
 
+
+def save_owners():
+    """the username of every account with a TTT2 save"""
+    return [npid for npid, *_ in all_saves()]
+
+
+def floor_accounts(names, rank=None, label=None, dry_run=False, force=False, fix_points=False,
+                   refloor=False):
+    """floor_account over names, with one online check and one floor-batch audit record;
+    returns how many accounts ended in each status"""
     # 접속자 조회는 한 번만 한다. 계정마다 부르면 API 서버 장애 시 계정 수만큼 대기한다
     # dry run은 쓰지 않으므로 API 서버가 죽어도 멈추지 않고 보고서를 끝까지 보여준다
-    who = online() if a.dry_run else online_or_stop(a.force)
-    online_unknown = who is None
-    if online_unknown:
+    who = online() if dry_run else online_or_stop(force)
+    if who is None:
         print("  warn: API server unreachable. Online accounts cannot be told apart, "
               "and the real run will stop unless --force is given.")
         who = set()
-    label = a.label or "pre-floor-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    print(f"{len(names)} accounts, floor {a.rank if a.rank is not None else 'auto'}, "
-          f"backup label {label}{'  (dry run)' if a.dry_run else ''}")
+    label = label or "pre-floor-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    print(f"{len(names)} accounts, floor {rank if rank is not None else 'auto'}, "
+          f"backup label {label}{'  (dry run)' if dry_run else ''}")
 
     count = dict.fromkeys(("applied", "dry_run", "no_change", "likely_demoted", "online", "orphaned",
                            "failed"), 0)
     targets, moves = 0, Counter()
     for npid in names:
-        status, move = floor_account(npid, a.rank, who, label, a.dry_run, a.force, a.fix_points,
-                                     a.refloor)
+        status, move = floor_account(npid, rank, who, label, dry_run, force, fix_points, refloor)
         count[status] += 1
         targets += move is not None
         if status in ("applied", "dry_run"):
             moves[move] += 1
-    done = count["dry_run"] if a.dry_run else count["applied"]
+    done = count["dry_run"] if dry_run else count["applied"]
 
     _report_moves(targets, moves)
-    print(f"{'would apply' if a.dry_run else 'applied'} {done}  "
+    print(f"{'would apply' if dry_run else 'applied'} {done}  "
           f"no change {count['no_change']}  likely demoted {count['likely_demoted']}  "
           f"online {count['online']}  orphaned {count['orphaned']}  failed {count['failed']}")
-    if not a.dry_run and len(names) > 1:
+    if not dry_run and len(names) > 1:
         audit("floor-batch", "-", accounts=done, targets=targets,
-              moves={_move_label(m): n for m, n in moves.items()}, label=label, rank=a.rank,
-              fix_points=a.fix_points, refloor=a.refloor, likely_demoted=count["likely_demoted"],
+              moves={_move_label(m): n for m, n in moves.items()}, label=label, rank=rank,
+              fix_points=fix_points, refloor=refloor, likely_demoted=count["likely_demoted"],
               skipped_online=count["online"],
               orphaned=count["orphaned"], failed=count["failed"])
+    return count
 
 
 def cmd_restore(a):
