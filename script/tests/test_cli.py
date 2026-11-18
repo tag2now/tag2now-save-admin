@@ -173,9 +173,9 @@ class FloorTest(RpcnDataCase):
         return self.add_account(name, buf), buf
 
     def add_demoted(self, name="Alice"):
-        """floored at 19 earlier, three characters demoted since"""
+        """floored at 22 earlier, three characters demoted since"""
         chars = [(0, 30, 100), (1, 17, 0), (2, 17, 0), (3, 18, 0)]
-        buf = bytes(make_save(every=(19, ta.FLOOR_POINTS[19]), chars=chars, account_rank=30))
+        buf = bytes(make_save(every=(22, ta.FLOOR_POINTS[22]), chars=chars, account_rank=30))
         return self.add_account(name, buf), buf
 
     def test_raises_characters_to_the_floor(self):
@@ -184,7 +184,7 @@ class FloorTest(RpcnDataCase):
         after = read(path)
         self.assertEqual(code, 0)
         self.assertEqual(char_state(after, 0), (30, 100, 0))
-        self.assertEqual({char_state(after, i) for i in range(1, ta.CHAR_N)}, {(19, ta.FLOOR_POINTS[19], 0)})
+        self.assertEqual({char_state(after, i) for i in range(1, ta.CHAR_N)}, {(22, ta.FLOOR_POINTS[22], 0)})
         self.assertTrue(sealed(after))
         self.assertIn("applied 1  no change 0", out)
 
@@ -192,7 +192,7 @@ class FloorTest(RpcnDataCase):
         self.add_unfloored()
         self.run_cli("floor", "Alice", "--label", "pre-test")
         (rec,) = self.audit_records()
-        self.assertEqual((rec["action"], rec["floor"], rec["raised"]), ("floor", 19, 58))
+        self.assertEqual((rec["action"], rec["floor"], rec["raised"]), ("floor", 22, 58))
         self.assertEqual(self.backups("Alice"), ["pre-test.tdt"])
 
     def test_several_accounts_add_a_batch_record(self):
@@ -211,7 +211,7 @@ class FloorTest(RpcnDataCase):
         code, out, _ = self.run_cli("floor", "--all")
         self.assertEqual(code, 0)
         self.assertIn("2 accounts, floor auto", out)
-        self.assertEqual((char_state(read(a), 1)[0], char_state(read(b), 1)[0]), (19, 19))
+        self.assertEqual((char_state(read(a), 1)[0], char_state(read(b), 1)[0]), (22, 22))
 
     def test_explicit_rank(self):
         path, _ = self.add_unfloored()
@@ -260,13 +260,13 @@ class FloorTest(RpcnDataCase):
         path, _ = self.add_demoted()
         self.run_cli("floor", "Alice", "--refloor")
         after = read(path)
-        self.assertEqual([char_state(after, i) for i in (1, 2, 3)], [(19, ta.FLOOR_POINTS[19], 0)] * 3)
+        self.assertEqual([char_state(after, i) for i in (1, 2, 3)], [(22, ta.FLOOR_POINTS[22], 0)] * 3)
 
     def test_fix_points_tops_up_characters_at_the_floor(self):
-        buf = make_save(every=(19, ta.FLOOR_POINTS[19]), chars=[(0, 30, 100), (5, 19, 100)], account_rank=30)
+        buf = make_save(every=(22, ta.FLOOR_POINTS[22]), chars=[(0, 30, 100), (5, 22, 100)], account_rank=30)
         path = self.add_account("Alice", buf)
         code, _, _ = self.run_cli("floor", "Alice", "--fix-points")
-        self.assertEqual((code, char_state(read(path), 5)), (0, (19, ta.FLOOR_POINTS[19], 0)))
+        self.assertEqual((code, char_state(read(path), 5)), (0, (22, ta.FLOOR_POINTS[22], 0)))
         self.assertEqual(self.audit_records()[0]["points_fixed"], 1)
 
     def test_rank_outside_the_floor_table(self):
@@ -301,7 +301,7 @@ class FloorRedoTest(RpcnDataCase):
         after = read(self.path)
         self.assertEqual(code, 0)
         self.assertIn("applied 1  played chars kept 1", out)
-        self.assertEqual(char_state(after, 1), (19, ta.FLOOR_POINTS[19], 0))
+        self.assertEqual(char_state(after, 1), (22, ta.FLOOR_POINTS[22], 0))
         self.assertEqual(char_state(after, 3), (18, 800, 0))
         self.assertEqual(self.backups("Alice"), ["pre-old.tdt", "pre-redo.tdt"])
 

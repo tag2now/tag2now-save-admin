@@ -418,24 +418,24 @@ class FloorRouteTest(ServerCase):
         original = bytes(make_save(chars=[(0, 30, 100, 5, 5)], account_rank=30))
         path = self.add_account("Alice", original)
         preview = self.ok("/saves/floor", username="Alice", dry_run=True)
-        self.assertEqual(preview["floor"], {"reached": 30, "floor": 19, "raised": 58, "points_fixed": 0,
+        self.assertEqual(preview["floor"], {"reached": 30, "floor": 22, "raised": 58, "points_fixed": 0,
                                             "likely_demoted": False})
         self.assertEqual(len(preview["changes"]["chars"]), 58)
         out = self.ok("/saves/floor", username="Alice", expect_sha256=preview["sha256"])
         self.assertTrue(out["applied"])
-        self.assertEqual(char_state(read(path), 1), (19, ta.FLOOR_POINTS[19], 0))
-        self.assertEqual(self.audit_records()[0]["floor"], 19)
+        self.assertEqual(char_state(read(path), 1), (22, ta.FLOOR_POINTS[22], 0))
+        self.assertEqual(self.audit_records()[0]["floor"], 22)
 
     def test_demotions_after_an_earlier_floor_need_refloor(self):
         chars = [(0, 30, 100), (1, 17, 0), (2, 17, 0)]
-        original = bytes(make_save(every=(19, ta.FLOOR_POINTS[19]), chars=chars, account_rank=30))
+        original = bytes(make_save(every=(22, ta.FLOOR_POINTS[22]), chars=chars, account_rank=30))
         path = self.add_account("Alice", original)
         sha = srv.sha256(original)
         self.assertTrue(self.ok("/saves/floor", username="Alice", dry_run=True)["floor"]["likely_demoted"])
         self.fails("/saves/floor", 409, "likely_demoted", username="Alice", expect_sha256=sha)
         self.assertEqual(read(path), original)
         self.ok("/saves/floor", username="Alice", refloor=True, expect_sha256=sha)
-        self.assertEqual(char_state(read(path), 1), (19, ta.FLOOR_POINTS[19], 0))
+        self.assertEqual(char_state(read(path), 1), (22, ta.FLOOR_POINTS[22], 0))
 
     def test_explicit_rank_must_have_floor_points(self):
         self.add_account("Alice", make_save())

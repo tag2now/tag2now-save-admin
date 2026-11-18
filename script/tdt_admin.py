@@ -79,13 +79,8 @@ SLOT_RANK, SLOT_POINTS, SLOT_STREAK, SLOT_WIN, SLOT_LOSS = 0x00, 0x02, 0x04, 0x0
 RANK_N = 43
 ALL_CHARS = -1   # set-rank --char all
 
-# floor policy: reached tier (account rank = high water mark) -> floor rank.
-# Brawler (17..20) -> 3rd dan, Warrior (21..24) -> Mentor, Vanquisher (25..28) -> Brawler,
-# Genbu (29..32) -> Fighter, Fujin (33..37) -> Warrior, Emperor (38..40) -> Vanquisher
-# and Tekken God (41..42) -> Genbu
-BASE_FLOOR = 10
-TIERS = [10, 13, 17, 21, 25, 29, 33, 38, 41]
-FLOOR_BY_TIER = {10: 10, 13: 10, 17: 12, 21: 14, 25: 17, 29: 19, 33: 21, 38: 25, 41: 29}
+# floor policy: reached rank (account rank = high water mark) and above -> floor rank
+FLOOR_FROM = {0: 10, 13: 12, 14: 13, 16: 14, 17: 15, 19: 17, 21: 18, 25: 21, 29: 22, 38: 25, 41: 29}
 
 # rank points set with a floor. kyu ranks (1..9) sit at 200 * rank; 1st dan (10) cannot be
 # demoted. above that a loss is -2000 and the gauge going below 0 demotes, so every 2000
@@ -899,8 +894,7 @@ def check_floor_rank(rank):
 
 
 def floor_for(m):
-    reached = [t for t in TIERS if m >= t]
-    return FLOOR_BY_TIER[reached[-1]] if reached else BASE_FLOOR
+    return FLOOR_FROM[max(t for t in FLOOR_FROM if t <= m)]
 
 
 def reached(b):

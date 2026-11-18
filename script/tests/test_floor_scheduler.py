@@ -67,7 +67,7 @@ class TickTest(RpcnDataCase):
         other = self.add_account("Other", self.unfloored)
         self.tick(at(6, 6, 10))
         self.tick(at(6, 6, 11))
-        self.assertEqual((char_state(read(old), 1)[0], char_state(read(other), 1)[0]), (19, 19))
+        self.assertEqual((char_state(read(old), 1)[0], char_state(read(other), 1)[0]), (22, 22))
         self.assertEqual(len(self.batches()), 1)
         self.assertEqual(fs.last_daily(), at(6, 6, 10))
 
@@ -75,7 +75,7 @@ class TickTest(RpcnDataCase):
         new = self.add_account("New", self.unfloored, created=int(fn.CUTOFF.timestamp()) + 100)
         fs.record_daily(at(6, 6, 10))
         self.tick(at(6, 7))
-        self.assertEqual(char_state(read(new), 1)[0], 19)
+        self.assertEqual(char_state(read(new), 1)[0], 22)
         self.assertEqual(fn.load_state()["done"].keys(), {"New"})
         self.assertEqual(self.batches(), [])
 
@@ -88,14 +88,14 @@ class TickTest(RpcnDataCase):
 
         self.online = set()
         self.tick(at(6, 6, 11))
-        self.assertEqual(char_state(read(path), 1)[0], 19)
+        self.assertEqual(char_state(read(path), 1)[0], 22)
 
     def test_a_new_users_failure_does_not_stop_the_daily_floor(self):
         path = self.add_account("Old", self.unfloored)
         os.unlink(fn.STATE)
         out = self.failing_tick(at(6, 6, 10))
         self.assertIn("new users floor failed", out)
-        self.assertEqual(char_state(read(path), 1)[0], 19)
+        self.assertEqual(char_state(read(path), 1)[0], 22)
 
 
 class StartTest(unittest.TestCase):

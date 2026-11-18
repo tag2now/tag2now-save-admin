@@ -73,8 +73,9 @@ class DecodeTest(unittest.TestCase):
 
 class FloorRuleTest(unittest.TestCase):
     def test_floor_by_reached_rank(self):
-        expected = {0: 10, 9: 10, 10: 10, 12: 10, 13: 10, 16: 10, 17: 12, 20: 12, 21: 14, 24: 14,
-                    25: 17, 28: 17, 29: 19, 32: 19, 33: 21, 37: 21, 38: 25, 40: 25, 41: 29, 42: 29}
+        expected = {0: 10, 12: 10, 13: 12, 14: 13, 15: 13, 16: 14, 17: 15, 18: 15, 19: 17, 20: 17,
+                    21: 18, 24: 18, 25: 21, 28: 21, 29: 22, 32: 22, 33: 22, 37: 22, 38: 25, 40: 25,
+                    41: 29, 42: 29}
         self.assertEqual({m: ta.floor_for(m) for m in expected}, expected)
 
     def test_floor_points(self):
@@ -94,11 +95,11 @@ class FloorRuleTest(unittest.TestCase):
 class FloorBufTest(unittest.TestCase):
     def test_raises_everything_below_the_floor(self):
         buf = make_save(chars=[(0, 30, 100), (1, 25, 300)], account_rank=12)
-        self.assertEqual(ta.floor_buf(buf), (30, 19, 58))   # 57 characters and the account rank
+        self.assertEqual(ta.floor_buf(buf), (30, 22, 58))   # 57 characters and the account rank
         self.assertEqual(char_state(buf, 0), (30, 100, 0))
         self.assertEqual(char_state(buf, 1), (25, 300, 0))
-        self.assertEqual(char_state(buf, 2), (19, ta.FLOOR_POINTS[19], 0))
-        self.assertEqual(buf[ta.OFF_ACCOUNT_RANK], 19)
+        self.assertEqual(char_state(buf, 2), (22, ta.FLOOR_POINTS[22], 0))
+        self.assertEqual(buf[ta.OFF_ACCOUNT_RANK], 22)
 
     def test_explicit_rank_overrides_the_rule(self):
         buf = make_save(chars=[(0, 30)], account_rank=30)
@@ -114,13 +115,13 @@ class FloorBufTest(unittest.TestCase):
     def test_keeps_the_streak_of_a_raised_character(self):
         buf = make_save(chars=[(0, 30), (1, 5, 0, 2, 9, -4)], account_rank=30)
         ta.floor_buf(buf)
-        self.assertEqual(char_state(buf, 1), (19, ta.FLOOR_POINTS[19], 0xFC))
+        self.assertEqual(char_state(buf, 1), (22, ta.FLOOR_POINTS[22], 0xFC))
 
     def test_fix_floor_points_tops_up_characters_at_the_floor(self):
-        buf = make_save(every=(19, ta.FLOOR_POINTS[19]), chars=[(0, 30, 10), (5, 19, 100), (6, 20, 100)], account_rank=30)
-        self.assertEqual(ta.fix_floor_points(buf, 19), 1)
-        self.assertEqual(char_state(buf, 5), (19, ta.FLOOR_POINTS[19], 0))
-        self.assertEqual(char_state(buf, 6), (20, 100, 0))
+        buf = make_save(every=(22, ta.FLOOR_POINTS[22]), chars=[(0, 30, 10), (5, 22, 100), (6, 23, 100)], account_rank=30)
+        self.assertEqual(ta.fix_floor_points(buf, 22), 1)
+        self.assertEqual(char_state(buf, 5), (22, ta.FLOOR_POINTS[22], 0))
+        self.assertEqual(char_state(buf, 6), (23, 100, 0))
 
 
 class SetAllBufTest(unittest.TestCase):
@@ -132,7 +133,7 @@ class SetAllBufTest(unittest.TestCase):
 
 
 class RedoBufTest(unittest.TestCase):
-    """an earlier floor to 17 (3000 points), redone with the current rule (19, at its floor points)"""
+    """an earlier floor to 17 (3000 points), redone with the current rule (22, at its floor points)"""
 
     def setUp(self):
         self.pre = make_save(chars=[(0, 30, 100, 5, 5)], account_rank=30)
@@ -142,9 +143,9 @@ class RedoBufTest(unittest.TestCase):
 
     def test_moves_untouched_characters_to_the_current_floor(self):
         y_new, changes, played = ta.redo_buf(self.pre, self.cur, 17)
-        self.assertEqual((y_new, len(changes), played), (19, 58, []))
-        self.assertEqual(changes[0], (1, (17, 3000, 0), (19, ta.FLOOR_POINTS[19], 0)))
-        self.assertEqual(char_state(self.cur, 58), (19, ta.FLOOR_POINTS[19], 0))
+        self.assertEqual((y_new, len(changes), played), (22, 58, []))
+        self.assertEqual(changes[0], (1, (17, 3000, 0), (22, ta.FLOOR_POINTS[22], 0)))
+        self.assertEqual(char_state(self.cur, 58), (22, ta.FLOOR_POINTS[22], 0))
         self.assertEqual(char_state(self.cur, 0), (30, 100, 0))
 
     def test_keeps_characters_played_since(self):
@@ -163,8 +164,8 @@ class RedoBufTest(unittest.TestCase):
         self.pre[ta.OFF_ACCOUNT_RANK] = 12
         self.cur[ta.OFF_ACCOUNT_RANK] = 17
         _, changes, _ = ta.redo_buf(self.pre, self.cur, 17)
-        self.assertEqual(changes[-1], ("account", (17,), (19,)))
-        self.assertEqual(self.cur[ta.OFF_ACCOUNT_RANK], 19)
+        self.assertEqual(changes[-1], ("account", (17,), (22,)))
+        self.assertEqual(self.cur[ta.OFF_ACCOUNT_RANK], 22)
 
     def test_does_not_touch_the_record(self):
         ta.redo_buf(self.pre, self.cur, 17)
